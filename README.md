@@ -9,7 +9,7 @@ This is version 3 of **PADMA HOSTEL FINANCE**. It has the same screens, rules an
 - **It updates itself** whenever a new version is uploaded here.
 - **Your records never go to GitHub.** They stay on the hostel computer, plus the backup folder you choose.
 
-App address: **https://dawnofgod.github.io/padma-hostel-finance/**
+App address: **https://padma-hostel-finance.vercel.app/**  (hosted free on Vercel, which publishes this GitHub repository automatically)
 
 ---
 
@@ -59,12 +59,12 @@ Everything works like the old app: Dashboard, Rooms, Admissions, Students, Month
 
 1. Change the files in this repository (or upload the new files you were given), using **Add file → Upload files** and then **Commit changes**.
 2. In `sw.js`, raise the number in `const VERSION = '3.0.0';`, for example to `'3.0.1'`. **The app only notices updates when this number changes.**
-3. Within about a minute GitHub publishes it. The next time the hostel PC is online, the app shows **"A new version of the app is ready → Update now"**. Updating never touches the records.
+3. Within about a minute Vercel publishes it automatically. The next time the hostel PC is online, the app shows **"A new version of the app is ready → Update now"**. Updating never touches the records.
 
 ## Important
 
 - **Don't clear Edge/Chrome "site data / cookies" for this site.** That would erase the records on that computer. If it ever happens, restore the latest `Backup\padma-data.json` from Google Drive (step 2).
-- **Don't rename this repository.** That changes the app's address and the PC would need a fresh install and restore.
+- **Keep the address the same.** Don't rename the Vercel project or move the app to another address; the PC would need a fresh install and a restore.
 - The app login protects against casual use. It is not a safe; anyone with full access to the Windows account could still reach the browser data.
 
 ## Files
