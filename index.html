@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self' blob:">
+<meta name="theme-color" content="#78350f" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="assets/icon-192.png" />
+<link rel="apple-touch-icon" href="assets/icon-192.png" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Padma Hostel — Finance &amp; Admissions Console</title>
+<link rel="stylesheet" href="tailwind.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="min-h-screen theme-phb">
+
+<div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-50">
+  <div class="absolute inset-0 grid-fade pointer-events-none"></div>
+  <div class="relative card w-full max-w-md p-8 shadow-xl dynamic-border">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-11 h-11 rounded-lg overflow-hidden border border-slate-200 bg-white shadow-sm">
+        <img src="assets/logo.png" alt="Padma Hostel" class="w-full h-full object-cover" />
+      </div>
+      <div>
+        <div class="text-xl font-bold tracking-tight">Padma Hostel</div>
+        <div class="text-xs mono text-slate-500">Finance &amp; Admissions Console</div>
+      </div>
+    </div>
+    <div id="loginNote" class="text-xs text-slate-500 mb-4">Restricted area — admin credentials required.</div>
+    <label class="text-xs mono text-slate-500">USERNAME</label>
+    <input id="loginUser" class="w-full mt-1 mb-3 border border-slate-300 rounded-md px-3 py-2" autocomplete="username" />
+    <label class="text-xs mono text-slate-500">PASSWORD</label>
+    <input id="loginPass" type="password" class="w-full mt-1 mb-4 border border-slate-300 rounded-md px-3 py-2" placeholder="••••••••" autocomplete="current-password" />
+    <div id="loginConfirmWrap" class="hidden"><label class="text-xs mono text-slate-500">CONFIRM PASSWORD</label>
+    <input id="loginPass2" type="password" class="w-full mt-1 mb-4 border border-slate-300 rounded-md px-3 py-2" placeholder="••••••••" autocomplete="new-password" /></div>
+    <button id="loginBtn" class="btn w-full text-white py-2.5 rounded-md font-semibold dynamic-bg">Enter console →</button>
+    <div id="loginErr" class="hidden mt-3 text-xs text-rose-600 mono"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header class="border-b border-slate-200 bg-white sticky top-0 z-30">
+    <div class="max-w-[1400px] mx-auto px-6 py-3 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-md overflow-hidden border border-slate-200 bg-white shadow-sm">
+          <img src="assets/logo.png" alt="Padma Hostel" class="w-full h-full object-cover" />
+        </div>
+        <div>
+          <div class="text-[15px] font-bold tracking-tight leading-none">Padma Hostel</div>
+          <div class="text-[11px] mono text-slate-500 mt-0.5">Finance Console</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-1 bg-slate-100 rounded-full p-1">
+        <button data-branch="PHB-01" class="branch-btn text-xs font-semibold px-4 py-1.5 rounded-full">👦 Padma Boys Hostel</button>
+        <button data-branch="PHG-02" class="branch-btn text-xs font-semibold px-4 py-1.5 rounded-full">👧 Padma Girls Hostel</button>
+      </div>
+      <div class="flex items-center gap-4">
+        <div class="text-right leading-tight">
+          <div id="clockTime" class="mono text-sm font-bold tracking-tight">--:--:--</div>
+          <div id="clockDate" class="text-[11px] text-slate-500">&nbsp;</div>
+        </div>
+        <div class="flex items-center gap-2 text-xs mono">
+          <span id="onlineDot" class="pulse-dot pulse-online"></span>
+          <span id="onlineText">ONLINE</span>
+        </div>
+        <button id="saveBtn" class="btn text-xs font-semibold px-3.5 py-2 rounded-md text-white dynamic-bg" title="Save the PDF reports and the data backup into your save folder (Ctrl+S)"><span id="saveLabel">💾 Save</span></button>
+        <button id="webBtn" class="btn text-xs font-semibold px-3 py-2 rounded-md border border-slate-300 bg-white" title="Download a copy of all data as one backup file (for a USB stick or email)"><span id="webLabel">⬇ Backup file</span></button>
+        <button id="logoutBtn" class="text-xs text-slate-500 hover:text-rose-600">Logout</button>
+      </div>
+    </div>
+    <div class="max-w-[1400px] mx-auto px-6 flex items-center gap-1">
+      <button data-tab="dashboard" class="tab-btn text-sm font-medium px-4 py-2.5 border-b-2 border-transparent">Dashboard</button>
+      <button data-tab="rooms" class="tab-btn text-sm font-medium px-4 py-2.5 border-b-2 border-transparent">Rooms</button>
+      <button data-tab="admission" class="tab-btn text-sm font-medium px-4 py-2.5 border-b-2 border-transparent">Admissions</button>
+      <button data-tab="students" class="tab-btn text-sm font-medium px-4 py-2.5 border-b-2 border-transparent">Students</button>
+      <button data-tab="monthly" class="tab-btn text-sm font-medium px-4 py-2.5 border-b-2 border-transparent">Monthly Fee</button>
+      <button data-tab="income" class="tab-btn text-sm font-medium px-4 py-2.5 border-b-2 border-transparent">Income</button>
+      <button data-tab="expenditure" class="tab-btn text-sm font-medium px-4 py-2.5 border-b-2 border-transparent">Expenditure</button>
+      <button data-tab="settings" class="tab-btn text-sm font-medium px-4 py-2.5 border-b-2 border-transparent">Settings</button>
+    </div>
+  </header>
+
+  <!-- Save reminder (shown when changes have waited a week or more) -->
+  <div id="updateBanner" class="hidden max-w-[1400px] mx-auto px-6 mt-4">
+    <div class="p-3 rounded-xl border flex items-center justify-between" style="background:#ecfdf5;border-color:#6ee7b7;">
+      <div class="text-sm"><b>A new version of the app is ready.</b> <span class="text-slate-600">Your data stays as it is.</span></div>
+      <button id="updateBtn" class="btn text-xs text-white px-3 py-1.5 rounded-md font-semibold dynamic-bg">Update now</button>
+    </div>
+  </div>
+
+  <div id="saveBanner" class="hidden max-w-[1400px] mx-auto px-6 mt-4">
+    <div class="p-4 rounded-xl border flex items-center justify-between" style="background:var(--theme-light); border-color:var(--theme-border);">
+      <div class="flex items-center gap-3">
+        <span class="text-xl">📅</span>
+        <div>
+          <div class="text-sm font-bold dynamic-text">Time to press Save</div>
+          <div class="text-xs text-slate-600" id="saveBannerText"></div>
+        </div>
+      </div>
+      <button id="saveBannerBtn" class="btn text-xs text-white px-3 py-1.5 rounded-md font-semibold dynamic-bg">💾 Save now</button>
+    </div>
+  </div>
+
+  <main class="max-w-[1400px] mx-auto px-6 py-6">
+    <section id="tab-dashboard" class="tab-pane"></section>
+
+    <!-- ROOMS TAB -->
+    <section id="tab-rooms" class="tab-pane hidden"></section>
+
+    <!-- ADMISSION TAB (the form stays in the page so typed values are kept when you switch tabs) -->
+    <section id="tab-admission" class="tab-pane hidden">
+      <div id="admDone" class="hidden card p-4 mb-4 flex items-center justify-between flex-wrap gap-3" style="background:#ecfdf5; border-color:#a7f3d0;">
+        <div class="text-sm text-emerald-800"><b id="admDoneText"></b></div>
+        <button id="admDonePdf" class="btn text-xs px-3 py-1.5 border border-emerald-300 bg-white rounded-md font-semibold text-emerald-700">📄 Open Admission PDF</button>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="card p-6 lg:col-span-2">
+          <div class="flex items-center justify-between mb-4">
+            <div><div class="text-lg font-bold">Student Application &amp; Admission</div><div class="text-xs text-slate-500 mono">Register student details based on official form specifications.</div></div>
+            <span class="chip" style="background:var(--theme-light);color:var(--theme-main);">Branch: <span id="admBranch">Padma Boys Hostel</span></span>
+          </div>
+
+          <div class="text-xs font-bold mono text-slate-400 uppercase tracking-wider mb-3 border-b pb-1">Student's Profile</div>
+          <div class="flex gap-4 mb-4 items-start">
+            <div class="grid grid-cols-1 gap-4 flex-1">
+              <div><label class="field-label">FULL NAME (CAPITAL)</label><input id="admName" class="field-input uppercase" placeholder="RAMESH KUMAR" /></div>
+            </div>
+            <div class="photo-box" id="photoBox">
+              <input type="file" id="admPhotoInput" accept="image/*" class="hidden" />
+              <div id="photoPlaceholder" class="text-slate-400 pointer-events-none">
+                <div class="text-2xl">📷</div>
+                <div class="text-[10px] mt-1 mono">Click to upload</div>
+              </div>
+              <img id="photoPreview" class="hidden" alt="" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="field-label">DATE OF BIRTH (B.S.)</label>
+              <div id="admDobPicker" class="bs-date-group"></div>
+              <div class="text-[10px] text-slate-400 mt-1">Select BS date (बि.स.)</div>
+            </div>
+            <div><label class="field-label">WHATSAPP NUMBER</label><input id="admWhatsapp" class="field-input" placeholder="+977 98XXXXXXXX" /></div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div><label class="field-label">EMAIL</label><input id="admEmail" class="field-input" placeholder="ramesh@gmail.com" /></div>
+            <div>
+              <label class="field-label">BLOOD GROUP</label>
+              <select id="admBloodGroup" class="field-input bg-white">
+                <option value="">Select</option>
+                <option>A+</option><option>A-</option><option>B+</option><option>B-</option>
+                <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div><label class="field-label">DISTRICT</label><input id="admDistrict" class="field-input" placeholder="Lalitpur" /></div>
+            <div><label class="field-label">MUNICIPALITY</label><input id="admMunicipality" class="field-input" placeholder="Lalitpur Metro" /></div>
+            <div><label class="field-label">WARD NO.</label><input id="admWard" class="field-input" placeholder="10" /></div>
+            <div><label class="field-label">TOLE / STREET</label><input id="admStreet" class="field-input" placeholder="Kumaripati" /></div>
+          </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div><label class="field-label">CITIZENSHIP NO.</label><input id="admCitizenship" class="field-input" placeholder="12-34-56-78901" /></div>
+            <div><label class="field-label">ACADEMIC INSTITUTE</label><input id="admInstitute" class="field-input" placeholder="College / School" /></div>
+            <div><label class="field-label">CLASS TIME / SHIFT</label><input id="admShift" class="field-input" placeholder="Morning / Day" /></div>
+            <div><label class="field-label">LEVEL / COURSE</label><input id="admLevel" class="field-input" placeholder="+2 / Bachelor" /></div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+              <label class="field-label">FOOD PREFERENCE</label>
+              <div class="flex gap-4 mt-2">
+                <label class="radio-row"><input type="radio" name="admFood" value="Vegetarian" checked /> Vegetarian</label>
+                <label class="radio-row"><input type="radio" name="admFood" value="Only Egg" /> Only Egg</label>
+                <label class="radio-row"><input type="radio" name="admFood" value="Non-Vegetarian" /> Non-Vegetarian</label>
+              </div>
+            </div>
+            <div><label class="field-label">HEALTH CONDITIONS</label><input id="admHealth" class="field-input" placeholder="Allergies, conditions..." /></div>
+          </div>
+
+          <div class="text-xs font-bold mono text-slate-400 uppercase tracking-wider mb-3 border-b pb-1">Guardian's Profile</div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div><label class="field-label">FATHER'S NAME</label><input id="admFather" class="field-input" placeholder="Father's Full Name" /></div>
+            <div><label class="field-label">MOTHER'S NAME</label><input id="admMother" class="field-input" placeholder="Mother's Full Name" /></div>
+            <div><label class="field-label">LOCAL GUARDIAN / SPOUSE</label><input id="admGuardian" class="field-input" placeholder="Guardian Name" /></div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div><label class="field-label">RELATION</label><input id="admRelation" class="field-input" placeholder="Uncle / Brother" /></div>
+            <div><label class="field-label">EMERGENCY PHONE</label><input id="admEmergencyPhone" class="field-input" placeholder="9800000000" /></div>
+            <div><label class="field-label">OCCUPATION</label><input id="admOccupation" class="field-input" placeholder="Occupation" /></div>
+          </div>
+          <div class="mb-6"><label class="field-label">ADDRESS</label><input id="admGuardianAddress" class="field-input" placeholder="Full guardian address" /></div>
+
+          <div class="text-xs font-bold mono text-slate-400 uppercase tracking-wider mb-3 border-b pb-1">Official Hostel Section</div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="field-label">BOOKING DATE (B.S.)</label>
+              <div id="admBookingPicker" class="bs-date-group"></div>
+              <div class="text-[10px] text-slate-400 mt-1">AD: <span id="admBookingAD"></span></div>
+            </div>
+            <div>
+              <label class="field-label">ASSIGNED ROOM</label>
+              <select id="admRoom" class="field-input bg-white"></select>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div><label class="field-label">BED</label><select id="admBed" class="field-input bg-white"></select></div>
+            <div><label class="field-label">MONTHLY RENT</label><input id="admMonthlyRent" type="number" class="field-input" /></div>
+            <div><label class="field-label">SECURITY DEPOSIT</label><input id="admDeposit" type="number" class="field-input" /></div>
+            <div>
+              <label class="field-label">ADMISSION DATE (B.S.)</label>
+              <div id="admAdmissionPicker" class="bs-date-group"></div>
+              <div class="text-[10px] text-slate-400 mt-1">AD: <span id="admAdmissionAD"></span></div>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div><label class="field-label">APPROVED BY</label><input id="admApprovedBy" class="field-input" placeholder="Warden / Admin name" /></div>
+          </div>
+
+          <div class="mt-6 flex gap-2">
+            <button id="admClearBtn" class="btn px-5 py-2.5 rounded-md font-semibold border border-slate-300 bg-white">Clear</button>
+            <button id="admSaveBtn" class="btn text-white px-5 py-2.5 rounded-md font-semibold dynamic-bg">💾 Save Admission</button>
+          </div>
+        </div>
+
+        <div class="card p-6 self-start" style="background:#0b1220; color:white; border-color:#0b1220;">
+          <div class="text-xs mono text-slate-400">JOINING BILL SUMMARY</div>
+          <div class="mt-3 space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-slate-400">Admission Fee</span><span id="calcAdm" class="mono">Rs. 5,000</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Deposit (refundable)</span><span id="calcDep" class="mono">Rs. 5,000</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Form Fee</span><span id="calcForm" class="mono">Rs. 200</span></div>
+            <div class="flex justify-between"><span class="text-slate-400">Bed Fee (1st month)</span><span id="calcBed" class="mono">Rs. 17,000</span></div>
+          </div>
+          <div class="border-t border-slate-700 mt-4 pt-4 flex justify-between items-center">
+            <span class="text-xs mono text-slate-400">TOTAL</span>
+            <span id="calcTotal" class="stat-num text-2xl font-bold" style="color:#fbbf24">Rs. 27,200</span>
+          </div>
+          <label class="mt-5 flex items-start gap-2 text-xs text-slate-300 cursor-pointer">
+            <input id="admPaid" type="checkbox" checked class="mt-0.5" />
+            <span>Payment received – add these amounts to the Income ledger and the first month's fee.</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-students" class="tab-pane hidden"></section>
+    <section id="tab-monthly" class="tab-pane hidden"></section>
+    <section id="tab-income" class="tab-pane hidden"></section>
+    <section id="tab-expenditure" class="tab-pane hidden"></section>
+    <section id="tab-settings" class="tab-pane hidden"></section>
+  </main>
+
+  <div id="modalRoot"></div>
+  <div id="toast" class="fixed bottom-6 right-6 z-50 hidden card px-4 py-3 shadow-xl text-sm"></div>
+</div>
+
+<script src="js/bs-data.js"></script>
+<script src="js/core.js"></script>
+<script src="vendor/html2canvas.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="js/padma-web.js"></script>
+<script src="js/app.js"></script>
+<script src="js/pwa.js"></script>
+</body>
+</html>

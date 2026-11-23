@@ -1,0 +1,656 @@
+// Generated from the original PADMA HOSTEL FINANCE source files (src/*.js). Do not edit by hand.
+(function (global) {
+'use strict';
+const __defs = {}, __cache = {};
+const __stub = {};
+function require(name) {
+  if (name === 'fs' || name === 'path') return __stub;
+  if (__cache[name]) return __cache[name].exports;
+  const module = { exports: {} }; __cache[name] = module;
+  __defs[name](module, module.exports); return module.exports;
+}
+__defs['./dates'] = function (module, exports) {
+// Nepali (Bikram Sambat) calendar helpers – browser version (same functions as the old app's src/dates.js).
+// Uses the month-length table in bs-data.js. 2000-01-01 B.S. = 14 April 1943 A.D.
+const MONTHS = ['Baisakh', 'Jestha', 'Asar', 'Shrawan', 'Bhadra', 'Aswin', 'Kartik', 'Mangsir', 'Poush', 'Magh', 'Falgun', 'Chaitra'];
+const MONTHS_NP = ['बैशाख', 'जेठ', 'असार', 'श्रावण', 'भाद्र', 'आश्विन', 'कार्तिक', 'मंसिर', 'पौष', 'माघ', 'फाल्गुन', 'चैत्र'];
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const WEEKDAYS_NP = ['आइतबार', 'सोमबार', 'मंगलबार', 'बुधबार', 'बिहीबार', 'शुक्रबार', 'शनिबार'];
+
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2089;
+const EPOCH = Date.UTC(1943, 3, 14);
+const DAY = 86400000;
+
+const pad = (n) => String(n).padStart(2, '0');
+const yearLen = (y) => BS_DATA[y].reduce((a, b) => a + b, 0);
+
+// Current wall-clock time in Nepal (UTC+05:45), independent of the PC's own timezone.
+function nepalNow() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kathmandu',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(new Date());
+  const get = (t) => Number(parts.find((p) => p.type === t).value);
+  return { y: get('year'), m: get('month'), d: get('day'), h: get('hour') % 24, mi: get('minute'), s: get('second') };
+}
+
+function adToBs(y, m, d) {
+  let n = Math.round((Date.UTC(y, m - 1, d) - EPOCH) / DAY);
+  if (n < 0) throw new Error('Date is before 2000 B.S.');
+  let year = MIN_YEAR;
+  while (BS_DATA[year] && n >= yearLen(year)) { n -= yearLen(year); year += 1; }
+  if (!BS_DATA[year]) throw new Error('Date is outside the supported B.S. range.');
+  let month = 1;
+  while (n >= BS_DATA[year][month - 1]) { n -= BS_DATA[year][month - 1]; month += 1; }
+  return { year, month, day: n + 1 };
+}
+
+function bsToAd(year, month, day) {
+  if (!BS_DATA[year]) throw new Error('Year outside the supported B.S. range.');
+  let n = 0;
+  for (let y = MIN_YEAR; y < year; y++) n += yearLen(y);
+  for (let k = 1; k < month; k++) n += BS_DATA[year][k - 1];
+  n += day - 1;
+  const t = new Date(EPOCH + n * DAY);
+  return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() };
+}
+
+function daysInBsMonth(year, month) {
+  const row = BS_DATA[year];
+  if (!row) return 30;
+  return row[month - 1];
+}
+
+function today() {
+  const n = nepalNow();
+  const bs = adToBs(n.y, n.m, n.d);
+  return {
+    bs: { ...bs, str: `${bs.year}-${pad(bs.month)}-${pad(bs.day)}` },
+    ad: { year: n.y, month: n.m, day: n.d, str: `${n.y}-${pad(n.m)}-${pad(n.d)}` },
+    time: { h: n.h, m: n.mi, s: n.s },
+    weekday: new Date(Date.UTC(n.y, n.m - 1, n.d)).getUTCDay(),
+  };
+}
+
+function parseBs(str) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str || '');
+  if (!m) return null;
+  return { year: +m[1], month: +m[2], day: +m[3] };
+}
+
+function bsStringToAdString(str) {
+  const b = parseBs(str);
+  if (!b) return '';
+  const a = bsToAd(b.year, b.month, b.day);
+  return `${a.year}-${pad(a.month)}-${pad(a.day)}`;
+}
+
+function formatBsLong(str) {
+  const b = parseBs(str);
+  if (!b) return str || '';
+  return `${b.day} ${MONTHS[b.month - 1]} ${b.year}`;
+}
+
+module.exports = {
+  MONTHS, MONTHS_NP, WEEKDAYS, WEEKDAYS_NP, MIN_YEAR, MAX_YEAR,
+  nepalNow, adToBs, bsToAd, daysInBsMonth, today, parseBs, bsStringToAdString, formatBsLong, pad,
+};
+
+};
+__defs['./logic'] = function (module, exports) {
+// Business rules shared by the screens (via preload), the PDF reports and the tests.
+const dates = require('./dates');
+
+const pad = (n) => String(n).padStart(2, '0');
+
+const BRANCHES = {
+  'PHB-01': { id: 'PHB-01', name: 'Padma Boys Hostel', short: 'Boys' },
+  'PHG-02': { id: 'PHG-02', name: 'Padma Girls Hostel', short: 'Girls' },
+};
+const BRANCH_IDS = Object.keys(BRANCHES);
+
+// Money taken as a refundable deposit is not the hostel's revenue.
+const DEPOSIT_CAT = 'Security Deposit (Refundable)';
+const isRefundable = (r) => !!r.refundable || r.category === DEPOSIT_CAT;
+const revenueRows = (rows) => rows.filter((r) => !isRefundable(r));
+const sum = (rows, f = 'amount') => rows.reduce((a, r) => a + (Number(r[f]) || 0), 0);
+
+const ymOf = (dateBS) => String(dateBS || '').slice(0, 7);
+function prevYm(ym) {
+  let [y, m] = ym.split('-').map(Number);
+  m -= 1;
+  if (m < 1) { m = 12; y -= 1; }
+  return `${y}-${pad(m)}`;
+}
+
+// A room with 1, 2, 3 or 4+ beds is a "1 Bed" ... "4 Bed" room for pricing.
+const bedTypeOf = (bedCount) => Math.min(4, Math.max(1, Number(bedCount) || 1));
+
+// Was this student expected to pay the fee for month `ym` ("2083-07")?
+function expectedIn(s, ym) {
+  if (s.since && ym < s.since) return false;
+  if (s.active === '0') return !!s.until && ym <= s.until;
+  return !s.until || ym <= s.until;
+}
+
+// Fee position of every relevant student of one branch for month `ym`.
+function feeStatus(branch, ym) {
+  const payments = branch.fees.filter((f) => f.forMonth === ym);
+  const rows = new Map();
+  for (const s of branch.students) {
+    if (expectedIn(s, ym) || payments.some((p) => p.studentId === s.id)) rows.set(s.id, { s, pays: [] });
+  }
+  for (const p of payments) {
+    if (!rows.has(p.studentId)) {
+      // the student record was deleted later – keep the payment visible
+      rows.set(p.studentId, { s: { id: p.studentId, name: p.studentName, phone: '', room: p.room, bed: p.bed, fee: Number(p.expected) || p.amount }, pays: [] });
+    }
+    rows.get(p.studentId).pays.push(p);
+  }
+  return [...rows.values()].map(({ s, pays }) => {
+    const paid = sum(pays);
+    const exp = Math.max(0, ...pays.map((p) => Number(p.expected) || 0)) || Number(s.fee) || 0;
+    const due = Math.max(0, exp - paid);
+    return {
+      s, expected: exp, paid, due,
+      status: paid <= 0 ? 'unpaid' : due > 0 ? 'part' : 'paid',
+      dates: pays.map((p) => p.dateBS).sort(),
+    };
+  }).sort((a, b) => String(a.s.room).localeCompare(String(b.s.room), undefined, { numeric: true }) || a.s.name.localeCompare(b.s.name));
+}
+
+// Revenue / expenditure / net profit of one branch for a period. month = 0 means the whole year.
+function periodTotals(branch, year, month = 0) {
+  const inPeriod = (r) => {
+    const b = dates.parseBs(r.dateBS);
+    return !!b && b.year === year && (!month || b.month === month);
+  };
+  const inc = branch.income.filter(inPeriod);
+  const exp = branch.expenditure.filter(inPeriod);
+  const revenue = sum(revenueRows(inc));
+  const expenditure = sum(exp);
+  return { revenue, expenditure, net: revenue - expenditure, deposits: sum(inc.filter(isRefundable)), incomeRows: inc, expenditureRows: exp };
+}
+
+module.exports = {
+  pad, BRANCHES, BRANCH_IDS, DEPOSIT_CAT, isRefundable, revenueRows, sum,
+  ymOf, prevYm, bedTypeOf, expectedIn, feeStatus, periodTotals,
+};
+
+};
+__defs['./seed'] = function (module, exports) {
+// Starting room lists (room numbers and bed counts from the original app).
+// Names are left empty on purpose: this file is public on GitHub. Real occupants come from your data / backup.
+function bed(name) { return { studentId: null, name: name || null, phone: null }; }
+function room(number, label, beds) {
+  return { id: 'ROOM-' + number, number: String(number), label: label || ('Room ' + number), desc: '', beds };
+}
+
+function defaultBoysRooms() {
+  return [
+    room(11, 'Room 11', [bed(null), bed(null), bed(null)]),
+    room(12, 'Room 12', [bed(null), bed(null), bed(null)]),
+    room(14, 'Room 14', [bed(null), bed(null)]),
+    room(15, 'Room 15', [bed(null), bed(null)]),
+    room(16, 'Room 16', [bed(null)]),
+    room(17, 'Room 17', [bed(null)]),
+    room(18, 'Room 18', [bed(null), bed(null)]),
+    room(19, 'Room 19', [bed(null), bed(null)]),
+    room(20, 'Room 20', [bed(null), bed(null), bed(null)]),
+    room(21, 'Room 21', [bed(null), bed(null)]),
+    room(22, 'Room 22', [bed(null), bed(null)]),
+    room(23, 'Room 23', [bed(null), bed(null), bed(null)]),
+    room(24, 'Room 24', [bed(null), bed(null), bed(null)]),
+    room(25, 'Room 25', [bed(null), bed(null), bed(null)]),
+    room(26, 'Room 26', [bed(null), bed(null)]),
+    room(27, 'Room 27', [bed(null)]),
+    room(28, 'Room 28', [bed(null), bed(null), bed(null), bed(null)]),
+    room('29A', 'Room 29 A', [bed(null), bed(null)]),
+    room('29B', 'Room 29 B', [bed(null), bed(null)]),
+    room(30, 'Room 30', [bed(null), bed(null), bed(null)]),
+    room(31, 'Room 31', [bed(null)]),
+    room(32, 'Room 32', [bed(null), bed(null), bed(null)]),
+  ];
+}
+
+// No roster was supplied for the girls' branch: a small starter grid that can be renamed / resized in Rooms.
+function defaultGirlsRooms() {
+  return [
+    room(1, 'Room 1', [bed(null), bed(null)]),
+    room(2, 'Room 2', [bed(null), bed(null)]),
+    room(3, 'Room 3', [bed(null), bed(null), bed(null)]),
+    room(4, 'Room 4', [bed(null)]),
+  ];
+}
+
+const buildDefaultRooms = (branchId) => (branchId === 'PHG-02' ? defaultGirlsRooms() : defaultBoysRooms());
+
+module.exports = { buildDefaultRooms };
+
+};
+__defs['./db'] = function (module, exports) {
+// The app's own database: one JSON file inside the app's private data folder
+// (C:\Users\<you>\AppData\Roaming\PADMA HOSTEL FINANCE\padma-data-v3.json).
+// Every change is written here at once, so closing the app never loses anything.
+const fs = require('fs');
+const path = require('path');
+const dates = require('./dates');
+const logic = require('./logic');
+const seed = require('./seed');
+
+const VERSION = 3;
+const DEFAULT_BED_PRICES = { 1: 17000, 2: 14500, 3: 13500, 4: 12500 };
+const DEFAULT_ADMISSION = { admissionFee: 5000, deposit: 5000, formFee: 200 };
+const DEFAULT_CATEGORIES = {
+  income: ['Monthly Fee', 'Extra Charge', 'Late Fee', 'Admission Fee', 'Form Fee', logic.DEPOSIT_CAT],
+  expenditure: ['Vegetable', 'Water', 'Electricity', 'Grocery', 'Dairy', 'Utensils', 'Gas'],
+};
+
+const uid = (p) => p + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function defaultBranch(id) {
+  return { rooms: seed.buildDefaultRooms(id), records: [], students: [], income: [], expenditure: [], fees: [], lastLedgerExportAt: null };
+}
+
+function defaultState() {
+  const categories = [];
+  for (const t of Object.keys(DEFAULT_CATEGORIES)) DEFAULT_CATEGORIES[t].forEach((name) => categories.push({ type: t, name }));
+  const branches = {};
+  logic.BRANCH_IDS.forEach((b) => { branches[b] = defaultBranch(b); });
+  return {
+    version: VERSION,
+    settings: { bedPrices: { ...DEFAULT_BED_PRICES }, admission: { ...DEFAULT_ADMISSION } },
+    categories,
+    branches,
+  };
+}
+
+const num = (v) => Number(v) || 0;
+
+function normalizeBranch(id, input) {
+  const b = input && typeof input === 'object' ? input : {};
+  const out = {
+    rooms: Array.isArray(b.rooms) ? b.rooms : seed.buildDefaultRooms(id),
+    records: Array.isArray(b.records) ? b.records : [],
+    students: Array.isArray(b.students) ? b.students : [],
+    income: Array.isArray(b.income) ? b.income : [],
+    expenditure: Array.isArray(b.expenditure) ? b.expenditure : [],
+    fees: Array.isArray(b.fees) ? b.fees : [],
+    lastLedgerExportAt: b.lastLedgerExportAt || null,
+  };
+  for (const r of out.rooms) {
+    if (!r.id) r.id = uid('ROOM');
+    if (!Array.isArray(r.beds)) r.beds = [];
+    r.label = r.label || ('Room ' + (r.number || ''));
+    r.desc = r.desc || '';
+    r.beds = r.beds.map((x) => ({ studentId: (x && x.studentId) || null, name: (x && x.name) || null, phone: (x && x.phone) || null }));
+  }
+  for (const r of out.records) {
+    if (!r.id) r.id = uid('REC');
+    ['admissionFee', 'deposit', 'formFee', 'bedFee'].forEach((k) => { r[k] = num(r[k]); });
+  }
+  for (const r of out.income) { r.amount = num(r.amount); r.ref = r.ref || ''; r.description = r.description || ''; if (!r.id) r.id = uid('INC'); }
+  for (const r of out.expenditure) { r.amount = num(r.amount); r.description = r.description || ''; if (!r.id) r.id = uid('EXP'); }
+  for (const f of out.fees) { f.amount = num(f.amount); f.expected = num(f.expected); if (!f.id) f.id = uid('FEE'); }
+  const curYm = logic.ymOf(dates.today().bs.str);
+  for (const st of out.students) {
+    if (!st.id) st.id = uid('STU');
+    st.bed = logic.bedTypeOf(st.bed); st.fee = num(st.fee);
+    st.active = st.active === '0' ? '0' : '1';
+    st.phone = st.phone || ''; st.room = st.room == null ? '' : String(st.room);
+    if (!st.since) {
+      const months = out.fees.filter((f) => f.studentId === st.id).map((f) => f.forMonth).filter(Boolean).sort();
+      st.since = months[0] || curYm;
+    }
+    st.until = st.until || '';
+  }
+  return out;
+}
+
+function normalize(input) {
+  const d = defaultState();
+  const s = input && typeof input === 'object' ? input : {};
+  const out = { version: VERSION, settings: {}, categories: [], branches: {} };
+  const set = s.settings || {};
+  out.settings.bedPrices = { ...DEFAULT_BED_PRICES };
+  for (const k of [1, 2, 3, 4]) if (set.bedPrices && set.bedPrices[k] != null) out.settings.bedPrices[k] = num(set.bedPrices[k]);
+  out.settings.admission = { ...DEFAULT_ADMISSION };
+  for (const k of Object.keys(DEFAULT_ADMISSION)) if (set.admission && set.admission[k] != null) out.settings.admission[k] = num(set.admission[k]);
+  out.categories = Array.isArray(s.categories) && s.categories.length ? s.categories.filter((c) => c && c.name && (c.type === 'income' || c.type === 'expenditure')) : d.categories;
+  // the categories the app itself writes must always exist
+  for (const name of [logic.DEPOSIT_CAT, 'Monthly Fee', 'Admission Fee', 'Form Fee']) {
+    if (!out.categories.some((c) => c.type === 'income' && c.name === name)) out.categories.push({ type: 'income', name });
+  }
+  for (const id of logic.BRANCH_IDS) out.branches[id] = normalizeBranch(id, s.branches && s.branches[id]);
+  return out;
+}
+
+function readJson(p) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
+}
+
+// Returns { state, origin } where origin says where the data came from.
+function load(dbPath, { backupPath } = {}) {
+  let src = readJson(dbPath);
+  let origin = 'database';
+  if (!src) { src = readJson(dbPath + '.bak'); origin = 'bak'; }
+  if (!src && backupPath) { src = readJson(backupPath); origin = 'backup'; }
+  if (!src || src.version !== VERSION) { src = null; origin = 'new'; }
+  return { state: normalize(src), origin };
+}
+
+// Temp file first, previous version kept as .bak, then swap – a power cut can never leave a half-written database.
+function atomicWrite(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, text, 'utf8');
+  fs.renameSync(tmp, file);
+}
+
+function save(dbPath, state) {
+  const json = JSON.stringify(state);
+  if (fs.existsSync(dbPath)) { try { fs.copyFileSync(dbPath, dbPath + '.bak'); } catch { /* ignore */ } }
+  atomicWrite(dbPath, json);
+  return json;
+}
+
+module.exports = { VERSION, DEFAULT_BED_PRICES, DEFAULT_ADMISSION, DEFAULT_CATEGORIES, defaultState, normalize, load, save, atomicWrite, uid };
+
+};
+__defs['./reports'] = function (module, exports) {
+// Builds the HTML for every PDF report and decides where each one lives.
+//
+//   <Documents>\PADMA HOSTEL FINANCE\
+//     Padma Boys Hostel\                       (and Padma Girls Hostel\)
+//       2083\
+//         07 Kartik\
+//           Monthly Fee\                       Monthly Fee Record - Kartik 2083.pdf
+//           Income Record\                     Income Record - Kartik 2083.pdf
+//           Expenditure Record\                Expenditure Record - Kartik 2083.pdf
+//           Admission Forms\                   <Student> - Admission Form.pdf
+//           Profit or Loss and Revenue Record\ Monthly + Yearly reports
+//
+// buildReports() is a pure function of the data, so the app can compare it with what is
+// already on disk and only rewrite the PDFs that actually changed.
+const dates = require('./dates');
+const logic = require('./logic');
+
+const { MONTHS } = dates;
+const { pad, sum } = logic;
+
+const F_FEE = 'Monthly Fee';
+const F_INC = 'Income Record';
+const F_EXP = 'Expenditure Record';
+const F_ADM = 'Admission Forms';
+const F_PL = 'Profit or Loss and Revenue Record';
+
+let LOGO = '';
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const money = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const byDate = (a, b) => (a.dateBS === b.dateBS ? String(a.id).localeCompare(String(b.id)) : a.dateBS < b.dateBS ? -1 : 1);
+const safeName = (s) => String(s || 'Student').replace(/[<>:"/\\|?*\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Student';
+const signed = (n) => (n < 0 ? '− ' : '') + money(Math.abs(n));
+
+function totalsBy(rows, key = 'category') {
+  const m = new Map();
+  for (const r of rows) {
+    const k = r[key] || '(none)';
+    const e = m.get(k) || { name: k, count: 0, total: 0 };
+    e.count += 1; e.total += r.amount;
+    m.set(k, e);
+  }
+  return [...m.values()].sort((a, b) => b.total - a.total);
+}
+
+// ---------- html building blocks ----------
+const CSS = (landscape) => `
+@page { size: A4 ${landscape ? 'landscape' : 'portrait'}; margin: 13mm 11mm 15mm; }
+* { box-sizing: border-box; }
+body { font: 10pt/1.35 "Segoe UI", Calibri, Arial, sans-serif; color: #111; margin: 0; }
+.head { border-bottom: 3px solid #78350f; padding-bottom: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: flex-end; }
+.org { font: 700 11pt Georgia, serif; letter-spacing: .08em; color: #78350f; }
+.branch { font-size: 9.5pt; color: #555; }
+h1 { font: 700 16pt Georgia, serif; margin: 2px 0 0; }
+.sub { color: #444; font-size: 9.5pt; }
+.logo { height: 17mm; width: 17mm; object-fit: contain; margin-left: 12px; }
+h2 { font: 700 11pt "Segoe UI", Arial, sans-serif; margin: 16px 0 4px; color: #78350f; }
+table { border-collapse: collapse; width: 100%; margin-top: 4px; }
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+th, td { border: 1px solid #8c8c8c; padding: 3.5px 6px; vertical-align: top; }
+th { background: #fde9c8; font-weight: 700; text-align: left; }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+td.c, th.c { text-align: center; }
+tr.total td { background: #e2efda; font-weight: 700; border-top: 2px solid #4d4d4d; }
+tr.memo td { background: #fff4d6; font-style: italic; }
+tr.alt td { background: #f7f7f7; }
+.result { margin-top: 12px; padding: 9px 12px; border: 2px solid; font: 700 13pt Georgia, serif; display: flex; justify-content: space-between; }
+.result.profit { border-color: #2e7d32; background: #e8f5e9; color: #1b5e20; }
+.result.loss { border-color: #b71c1c; background: #fdecea; color: #7f1010; }
+.banner { margin: 8px 0 2px; padding: 6px 10px; font-weight: 700; border-left: 6px solid; }
+.banner.ok { border-color: #2e7d32; background: #e8f5e9; color: #1b5e20; }
+.banner.warn { border-color: #e69f00; background: #fff4d6; color: #7a5200; }
+.st-paid { color: #1b5e20; font-weight: 700; } .st-part { color: #7a5200; font-weight: 700; } .st-unpaid { color: #b71c1c; font-weight: 700; }
+.foot { margin-top: 16px; font-size: 8pt; color: #666; border-top: 1px solid #bbb; padding-top: 4px; display: flex; justify-content: space-between; }
+.empty { color: #666; font-style: italic; text-align: center; padding: 10px; }
+`;
+
+function page({ title, subtitle, body, landscape = false, branchName }) {
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${CSS(landscape)}</style></head><body>
+  <div class="head"><div><div class="org">PADMA HOSTEL FINANCE</div><div class="branch">${esc(branchName)}</div><h1>${esc(title)}</h1><div class="sub">${esc(subtitle)}</div></div>${LOGO ? `<img class="logo" src="${LOGO}" alt="">` : ''}</div>
+  ${body}
+  <div class="foot"><span>${esc(branchName)} · all amounts in Rs. · dates in Bikram Sambat (B.S.)</span><span>Generated {{GENERATED}}</span></div>
+  </body></html>`;
+}
+
+function table(headers, rows, totalRows) {
+  const th = headers.map((h) => `<th class="${h.cls || ''}" ${h.w ? `style="width:${h.w}"` : ''}>${esc(h.label)}</th>`).join('');
+  const body = rows.length
+    ? rows.map((cells, i) => `<tr class="${i % 2 ? 'alt' : ''}">${cells.map((c, j) => `<td class="${headers[j].cls || ''}">${c}</td>`).join('')}</tr>`).join('')
+    : `<tr><td class="empty" colspan="${headers.length}">No entries</td></tr>`;
+  const tots = (totalRows || []).map((t) => `<tr class="${t.memo ? 'memo' : 'total'}">${t.cells.map((c, j) => `<td class="${headers[j].cls || ''}">${c}</td>`).join('')}</tr>`).join('');
+  return `<table><thead><tr>${th}</tr></thead><tbody>${body}${tots}</tbody></table>`;
+}
+
+const monthTitle = (y, m) => `${MONTHS[m - 1]} ${y}`;
+
+// ---------- individual reports ----------
+function ledgerReport(kind, y, m, rows, br) {
+  const isInc = kind === 'income';
+  const revenueRows = isInc ? logic.revenueRows(rows) : rows;
+  const deposits = isInc ? rows.filter(logic.isRefundable) : [];
+  const headers = isInc
+    ? [{ label: 'S.N.', cls: 'c', w: '7%' }, { label: 'Date (B.S.)', w: '16%' }, { label: 'Date (A.D.)', w: '13%' }, { label: 'Category', w: '20%' }, { label: 'Particulars' }, { label: 'Amount (Rs.)', cls: 'r', w: '15%' }]
+    : [{ label: 'S.N.', cls: 'c', w: '7%' }, { label: 'Date (B.S.)', w: '16%' }, { label: 'Date (A.D.)', w: '13%' }, { label: 'Particulars', w: '22%' }, { label: 'Remarks' }, { label: 'Amount (Rs.)', cls: 'r', w: '15%' }];
+  const totals = [{ cells: ['', '', '', '', isInc ? `TOTAL INCOME (REVENUE) – ${MONTHS[m - 1].toUpperCase()}` : `TOTAL EXPENDITURE – ${MONTHS[m - 1].toUpperCase()}`, money(sum(revenueRows))] }];
+  if (deposits.length) totals.push({ memo: true, cells: ['', '', '', '', 'Security deposits received (refundable – not counted as revenue)', money(sum(deposits))] });
+  const T = totalsBy(revenueRows);
+  const body = `
+    ${table(headers, rows.map((r, i) => [i + 1, esc(dates.formatBsLong(r.dateBS)), esc(r.dateAD), esc(r.category) + (logic.isRefundable(r) && isInc ? ' <i>(refundable)</i>' : ''), esc(r.description), money(r.amount)]), totals)}
+    <h2>Summary by ${isInc ? 'category' : 'particulars'}</h2>
+    ${table([{ label: isInc ? 'Category' : 'Particulars' }, { label: 'Entries', cls: 'c', w: '12%' }, { label: 'Amount (Rs.)', cls: 'r', w: '22%' }],
+      T.map((t) => [esc(t.name), t.count, money(t.total)]), [{ cells: ['Total', revenueRows.length, money(sum(revenueRows))] }])}`;
+  return page({
+    title: `${isInc ? 'Income' : 'Expenditure'} Record – ${monthTitle(y, m)}`,
+    subtitle: `${rows.length} entries  ·  Total Rs. ${money(sum(revenueRows))}`,
+    body, branchName: br.name,
+  });
+}
+
+function feeReport(br, y, m, status) {
+  const complete = status.length > 0 && status.every((x) => x.status === 'paid');
+  const unpaid = status.filter((x) => x.status !== 'paid').length;
+  const label = { paid: 'Paid', part: 'Partly paid', unpaid: 'Not paid' };
+  const rows = status.map((x, i) => [
+    i + 1, esc(x.s.name), esc(x.s.phone), esc(x.s.room), `${x.s.bed} Bed`, money(x.expected), money(x.paid), money(x.due),
+    esc(x.dates.map((d) => dates.formatBsLong(d)).join(', ') || '—'), `<span class="st-${x.status}">${label[x.status]}</span>`,
+  ]);
+  const body = `
+    <div class="banner ${complete ? 'ok' : 'warn'}">${complete ? `✔ All ${status.length} students have paid the fee for ${monthTitle(y, m)}.` : `Incomplete – ${unpaid} of ${status.length} students still have a fee due for ${monthTitle(y, m)}. This file becomes final once everyone has paid.`}</div>
+    ${table([{ label: 'S.N.', cls: 'c', w: '4%' }, { label: 'Student name', w: '16%' }, { label: 'Phone', w: '10%' }, { label: 'Room', cls: 'c', w: '6%' }, { label: 'Bed', cls: 'c', w: '6%' },
+      { label: 'Monthly fee', cls: 'r', w: '10%' }, { label: 'Paid', cls: 'r', w: '10%' }, { label: 'Due', cls: 'r', w: '9%' }, { label: 'Date(s) received' }, { label: 'Status', w: '9%' }],
+      rows, [{ cells: ['', 'TOTAL', '', '', '', money(sum(status, 'expected')), money(sum(status, 'paid')), money(sum(status, 'due')), '', ''] }])}`;
+  return page({
+    title: `Monthly Fee Record – ${monthTitle(y, m)}`,
+    subtitle: `${status.length} students  ·  Collected Rs. ${money(sum(status, 'paid'))} of Rs. ${money(sum(status, 'expected'))}`,
+    body, landscape: true, branchName: br.name,
+  });
+}
+
+function monthlyPL(data, br, y, m) {
+  const t = logic.periodTotals(data, y, m);
+  const rev = logic.revenueRows(t.incomeRows);
+  const fs = logic.feeStatus(data, `${y}-${pad(m)}`);
+  const memo = t.deposits ? [{ memo: true, cells: ['Security deposits received (refundable – not counted as revenue)', t.incomeRows.filter(logic.isRefundable).length, money(t.deposits)] }] : [];
+  const body = `
+    <h2>Revenue (income)</h2>
+    ${table([{ label: 'Category' }, { label: 'Entries', cls: 'c', w: '12%' }, { label: 'Amount (Rs.)', cls: 'r', w: '22%' }],
+      totalsBy(rev).map((x) => [esc(x.name), x.count, money(x.total)]), [{ cells: ['TOTAL REVENUE', rev.length, money(t.revenue)] }, ...memo])}
+    <h2>Expenditure</h2>
+    ${table([{ label: 'Particulars' }, { label: 'Entries', cls: 'c', w: '12%' }, { label: 'Amount (Rs.)', cls: 'r', w: '22%' }],
+      totalsBy(t.expenditureRows).map((x) => [esc(x.name), x.count, money(x.total)]), [{ cells: ['TOTAL EXPENDITURE', t.expenditureRows.length, money(t.expenditure)] }])}
+    <div class="result ${t.net >= 0 ? 'profit' : 'loss'}"><span>${t.net >= 0 ? 'NET PROFIT' : 'NET LOSS'} – ${esc(monthTitle(y, m))}</span><span>Rs. ${money(Math.abs(t.net))}</span></div>
+    ${fs.length ? `<h2>Monthly fee collection</h2>${table([{ label: 'Students', cls: 'c' }, { label: 'Fee expected (Rs.)', cls: 'r' }, { label: 'Fee collected (Rs.)', cls: 'r' }, { label: 'Fee still due (Rs.)', cls: 'r' }],
+      [[fs.length, money(sum(fs, 'expected')), money(sum(fs, 'paid')), money(sum(fs, 'due'))]])}` : ''}`;
+  return page({ title: `Profit or Loss and Revenue – ${monthTitle(y, m)}`, subtitle: `Monthly record  ·  Revenue Rs. ${money(t.revenue)}  ·  Expenditure Rs. ${money(t.expenditure)}`, body, branchName: br.name });
+}
+
+function yearlyPL(data, br, y, upto) {
+  const monthRows = [];
+  let revenue = 0, expenditure = 0, deposits = 0;
+  const allRev = [], allExp = [];
+  for (let m = 1; m <= upto; m++) {
+    const t = logic.periodTotals(data, y, m);
+    revenue += t.revenue; expenditure += t.expenditure; deposits += t.deposits;
+    allRev.push(...logic.revenueRows(t.incomeRows)); allExp.push(...t.expenditureRows);
+    monthRows.push([`${pad(m)} ${MONTHS[m - 1]}`, money(t.revenue), money(t.expenditure), signed(t.net), t.net > 0 ? 'Profit' : t.net < 0 ? 'Loss' : '—']);
+  }
+  const net = revenue - expenditure;
+  const body = `
+    <h2>Month-wise record</h2>
+    ${table([{ label: 'Month' }, { label: 'Revenue / Income (Rs.)', cls: 'r', w: '24%' }, { label: 'Expenditure (Rs.)', cls: 'r', w: '24%' }, { label: 'Profit / (Loss) (Rs.)', cls: 'r', w: '24%' }, { label: 'Result', cls: 'c', w: '10%' }],
+      monthRows, [{ cells: [`TOTAL (Baisakh – ${MONTHS[upto - 1]})`, money(revenue), money(expenditure), signed(net), net > 0 ? 'Profit' : net < 0 ? 'Loss' : '—'] }])}
+    <div class="result ${net >= 0 ? 'profit' : 'loss'}"><span>${net >= 0 ? 'NET PROFIT' : 'NET LOSS'} – ${y} (till ${esc(MONTHS[upto - 1])})</span><span>Rs. ${money(Math.abs(net))}</span></div>
+    <h2>Revenue by category – year to date</h2>
+    ${table([{ label: 'Category' }, { label: 'Entries', cls: 'c', w: '12%' }, { label: 'Amount (Rs.)', cls: 'r', w: '22%' }], totalsBy(allRev).map((x) => [esc(x.name), x.count, money(x.total)]),
+      [{ cells: ['Total revenue', allRev.length, money(revenue)] }, ...(deposits ? [{ memo: true, cells: ['Refundable security deposits received (not revenue)', '', money(deposits)] }] : [])])}
+    <h2>Expenditure by particulars – year to date</h2>
+    ${table([{ label: 'Particulars' }, { label: 'Entries', cls: 'c', w: '12%' }, { label: 'Amount (Rs.)', cls: 'r', w: '22%' }], totalsBy(allExp).map((x) => [esc(x.name), x.count, money(x.total)]), [{ cells: ['Total expenditure', allExp.length, money(expenditure)] }])}`;
+  return page({ title: `Yearly Profit or Loss and Revenue – ${y}`, subtitle: `Year ${y} B.S., Baisakh to ${MONTHS[upto - 1]}  ·  Revenue Rs. ${money(revenue)}  ·  Expenditure Rs. ${money(expenditure)}`, body, branchName: br.name });
+}
+
+// Same sections as the form in the user's original app (letterhead, profile, guardian, hostel section, joining bill, signatures).
+function admissionHtml(rec, br) {
+  const kv = (pairs) => `<table class="kv">${pairs.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v) || '-'}</td></tr>`).join('')}</table>`;
+  const total = (Number(rec.admissionFee) || 0) + (Number(rec.deposit) || 0) + (Number(rec.formFee) || 0) + (Number(rec.bedFee) || 0);
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Admission – ${esc(rec.name)}</title><style>
+@page { size: A4 portrait; margin: 0; }
+* { box-sizing: border-box; }
+body { font: 10pt/1.35 "Segoe UI", Calibri, Arial, sans-serif; color: #141414; margin: 0; }
+.band { background: #171717; color: #fff; padding: 9mm 14mm 6mm; display: flex; justify-content: space-between; align-items: center; }
+.band .t { font: 700 16pt Helvetica, Arial, sans-serif; } .band .s { font-size: 9pt; margin-top: 2px; } .band .g { font-size: 8.5pt; text-align: right; }
+.band img { height: 16mm; width: 16mm; object-fit: contain; background: #fff; border-radius: 3mm; margin-right: 8mm; }
+.wrap { padding: 6mm 14mm 0; position: relative; }
+h1 { font: 700 13pt Helvetica, Arial, sans-serif; margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: 1px solid #c8c8c8; }
+h2 { font: 700 10pt Helvetica, Arial, sans-serif; margin: 5mm 0 1.5mm; padding-bottom: 1mm; border-bottom: 1px solid #e0e0e0; }
+.photo { position: absolute; right: 14mm; top: 17mm; width: 32mm; height: 32mm; border: 1px solid #b4b4b4; }
+.photo img { width: 100%; height: 100%; object-fit: cover; }
+table.kv { width: 100%; border-collapse: collapse; }
+table.kv th { text-align: left; color: #5a5a5a; font-weight: 700; width: 40mm; padding: 1.2mm 0; font-size: 9.5pt; vertical-align: top; }
+table.kv td { padding: 1.2mm 0; font-size: 9.5pt; }
+table.bill { width: 100%; border-collapse: collapse; margin-top: 4mm; }
+table.bill th { background: #171717; color: #fff; text-align: left; padding: 2mm 3mm; }
+table.bill td { border: 1px solid #aaa; padding: 2mm 3mm; } td.r, th.r { text-align: right; }
+table.bill tfoot td { background: #f5f5f5; font-weight: 700; }
+.sign { display: flex; justify-content: space-between; margin-top: 22mm; font-size: 9pt; }
+.sign div { width: 56mm; border-top: 1px solid #969696; padding-top: 1.5mm; }
+.sign div:last-child { text-align: right; }
+</style></head><body>
+<div class="band"><div style="display:flex;align-items:center">${LOGO ? `<img src="${LOGO}" alt="">` : ''}<div><div class="t">Padma Hostel</div><div class="s">${esc(br.name)} (${esc(br.id)})</div></div></div><div class="g">Generated: {{GENERATED}}</div></div>
+<div class="wrap">
+<h1 style="margin-top:2mm">Student Admission Form &amp; Joining Bill</h1>
+<div class="photo">${rec.photo ? `<img src="${rec.photo}" alt="">` : ''}</div>
+<div style="width:140mm">
+<h2 style="margin-top:0">Student Profile</h2>
+${kv([['Full Name', rec.name], ['Date of Birth (BS)', rec.dob], ['WhatsApp', rec.whatsapp], ['Email', rec.email], ['Blood Group', rec.bloodGroup]])}
+</div>
+${kv([['District', rec.district], ['Municipality', rec.municipality], ['Ward No.', rec.ward], ['Tole / Street', rec.street], ['Citizenship No.', rec.citizenship], ['Institute', rec.institute], ['Class Shift', rec.shift], ['Level / Course', rec.level], ['Food Preference', rec.foodPreference], ['Health Conditions', rec.health]])}
+<h2>Guardian's Profile</h2>
+${kv([["Father's Name", rec.fatherName], ["Mother's Name", rec.motherName], ['Local Guardian', rec.guardianName], ['Relation', rec.relation], ['Emergency Phone', rec.emergencyPhone], ['Occupation', rec.occupation], ['Address', rec.guardianAddress]])}
+<h2>Official Hostel Section</h2>
+${kv([['Booking Date (BS)', rec.bookingDate], ['Admission Date (BS)', rec.admissionDate], ['Assigned Room', rec.roomLabel], ['Bed No.', rec.roomNo], ['Approved By', rec.approvedBy]])}
+<table class="bill"><thead><tr><th>Joining Bill Item</th><th class="r">Amount (Rs.)</th></tr></thead><tbody>
+<tr><td>Admission Fee</td><td class="r">${money(rec.admissionFee)}</td></tr>
+<tr><td>Security Deposit (refundable)</td><td class="r">${money(rec.deposit)}</td></tr>
+<tr><td>Form Fee</td><td class="r">${money(rec.formFee)}</td></tr>
+<tr><td>Bed / Room Fee</td><td class="r">${money(rec.bedFee)}</td></tr></tbody>
+<tfoot><tr><td>TOTAL</td><td class="r">${money(total)}</td></tr></tfoot></table>
+<div class="sign"><div>Student / Guardian Signature</div><div>Authorized Signature (Padma Hostel)</div></div>
+</div></body></html>`;
+}
+
+// month ("2083-07") an admission record belongs to
+function recordYm(rec) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rec.admissionDateBS || '')) return rec.admissionDateBS.slice(0, 7);
+  const t = rec.createdAt ? new Date(rec.createdAt) : null;
+  if (t && !Number.isNaN(t.getTime())) { const b = dates.adToBs(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate()); return `${b.year}-${pad(b.month)}`; }
+  return '';
+}
+
+// ---------- the full list of files that should exist ----------
+function buildReports(state, nowYm, opts = {}) {
+  LOGO = opts.logo || '';
+  const files = [];
+  const dirs = new Set();
+
+  for (const br of Object.values(logic.BRANCHES)) {
+    const data = state.branches[br.id];
+    const months = new Set();
+    const add = (ym) => { if (/^\d{4}-\d{2}$/.test(ym || '')) months.add(ym); };
+    data.income.forEach((r) => add(logic.ymOf(r.dateBS)));
+    data.expenditure.forEach((r) => add(logic.ymOf(r.dateBS)));
+    data.fees.forEach((f) => add(f.forMonth));
+    data.records.forEach((r) => add(recordYm(r)));
+    add(nowYm);
+
+    for (const ym of [...months].sort()) {
+      const [y, m] = ym.split('-').map(Number);
+      const base = `${br.name}/${y}/${pad(m)} ${MONTHS[m - 1]}`;
+      [F_FEE, F_INC, F_EXP, F_ADM, F_PL].forEach((f) => dirs.add(`${base}/${f}`));
+
+      const inc = data.income.filter((r) => logic.ymOf(r.dateBS) === ym).sort(byDate);
+      const exp = data.expenditure.filter((r) => logic.ymOf(r.dateBS) === ym).sort(byDate);
+
+      if (inc.length) files.push({ rel: `${base}/${F_INC}/Income Record - ${monthTitle(y, m)}.pdf`, html: ledgerReport('income', y, m, inc, br) });
+      if (exp.length) files.push({ rel: `${base}/${F_EXP}/Expenditure Record - ${monthTitle(y, m)}.pdf`, html: ledgerReport('expenditure', y, m, exp, br) });
+
+      if (data.fees.some((f) => f.forMonth === ym)) {
+        const status = logic.feeStatus(data, ym);
+        const complete = status.length > 0 && status.every((x) => x.status === 'paid');
+        files.push({ rel: `${base}/${F_FEE}/Monthly Fee Record - ${monthTitle(y, m)}${complete ? '' : ' (INCOMPLETE)'}.pdf`, html: feeReport(br, y, m, status) });
+      }
+
+      const used = new Set();
+      for (const rec of data.records.filter((r) => recordYm(r) === ym)) {
+        let nm = safeName(rec.name), n = 1;
+        while (used.has(nm.toLowerCase())) { n += 1; nm = `${safeName(rec.name)} (${n})`; }
+        used.add(nm.toLowerCase());
+        files.push({ rel: `${base}/${F_ADM}/${nm} - Admission Form.pdf`, html: admissionHtml(rec, br) });
+      }
+
+      if (inc.length || exp.length) {
+        files.push({ rel: `${base}/${F_PL}/Monthly Profit or Loss - ${monthTitle(y, m)}.pdf`, html: monthlyPL(data, br, y, m) });
+        files.push({ rel: `${base}/${F_PL}/Yearly Profit or Loss - ${y} (till ${MONTHS[m - 1]}).pdf`, html: yearlyPL(data, br, y, m) });
+      }
+    }
+  }
+  return { files, dirs: [...dirs] };
+}
+
+module.exports = { buildReports, admissionHtml, safeName, F_FEE, F_INC, F_EXP, F_ADM, F_PL };
+
+};
+global.PadmaCore = { dates: require('./dates'), logic: require('./logic'), db: require('./db'), reports: require('./reports') };
+})(window);
