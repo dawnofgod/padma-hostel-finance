@@ -29,16 +29,17 @@ App address: **https://padma-hostel-finance.vercel.app/**  (hosted free on Verce
    - `C:\Users\<your name>\AppData\Roaming\PADMA HOSTEL FINANCE\padma-data-v3.json` (the old app's live data. Type `%APPDATA%\PADMA HOSTEL FINANCE` in the File Explorer address bar to find it.)
 3. The app shows how many students, fees and entries it found. Press **Replace & restore**.
 
-## 3. Connect Google Drive (one time, needs internet)
+## 3. Google Drive backup: owner's Drive only (one-time setup)
 
-1. In the app: **Settings → Google Drive → ☁ Connect Google Drive**.
-2. Sign in with your Google account and allow access. The app can only see files and folders it creates, or that you pick for it.
-3. In Google's folder picker, choose **My Drive → Padma Hostel Finance** and click **Select**.
-4. Press **💾 Save**. The data backup and all PDF reports are uploaded into that folder, in the same month-folder layout. Later Saves upload only what changed. While you're signed in, the data backup is also uploaded automatically about 20 seconds after each change.
+All backups from every computer go to **one** Google Drive, the owner's. No Google sign-in happens on the hostel PCs; they only need the app PIN.
 
-**Using the owner's Drive without the owner's Gmail on the hostel PC:** share the owner's Drive folder with a separate hostel Gmail as **Editor**, sign in on the hostel PC with the hostel Gmail, and in the picker open the **"Shared with me"** tab to choose that folder. Every Gmail that connects must be listed as a *test user* in Google Cloud (Google Auth Platform → Audience).
+**Owner, one time:**
+1. Open **https://padma-hostel-finance.vercel.app/api/drive**, enter the app PIN, and sign in with the **owner's Gmail**. Allow access.
+2. The page shows two values. In Vercel → Settings → Environment Variables, add them as **Secret**: `GOOGLE_REFRESH_TOKEN` and `DRIVE_FOLDER_ID`. Click **Save**, then **Redeploy**.
 
-If the PC is offline, Save keeps everything on the computer and tells you to press Save again when you're online. Google may ask you to sign in again about once an hour; that's one click on Save.
+**On each computer:** Settings → Google Drive → **Enter app PIN**. After that, **💾 Save** uploads the data backup and PDF reports to the owner's **Padma Hostel Finance** folder, and the data backup also goes up automatically about 20 seconds after each change.
+
+Server settings in Vercel: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (the "Padma Hostel Finance (web app)" OAuth client, redirect URI `/api/drive-callback`), `GOOGLE_REFRESH_TOKEN`, `DRIVE_FOLDER_ID`, `SCAN_PIN`. The Google consent screen must be **In production**, otherwise Google cancels the permission after 7 days.
 
 ## 3b. (Optional) Also save into a folder on this PC
 
@@ -97,10 +98,11 @@ Everything works like the old app: Dashboard, Rooms, Admissions, Students, Month
 | `js/padma-web.js` | Storage on the computer, login, PDF making, saving to the folder and to Google Drive |
 | `js/bs-data.js` | Nepali calendar (B.S.) month lengths, 2000–2090 |
 | `api/scan.js` | Server part of the form scanner (runs on Vercel; holds the Gemini key) |
+| `api/drive.js`, `api/drive-callback.js`, `api/_google.js` | Server part of the Drive backup (owner's Drive only) |
 | `tools/` | `python3 tools/build-core.py` rebuilds `js/core.js` from `tools/core-src/` |
 | `sw.js`, `js/pwa.js`, `manifest.webmanifest` | Offline support, install and automatic updates |
 | `vendor/` | html2canvas and jsPDF (MIT licence), used to make the PDF files |
 
-## Google Drive keys in the code
+## Secrets
 
-`js/padma-web.js` contains a Google **client ID** and a browser **API key**. These are meant to be public. The client ID only works from `https://padma-hostel-finance.vercel.app`, and the API key only allows the folder picker from that same address. Neither can open anyone's Drive without that person signing in. **Never put a client secret or refresh token in this repository.**
+The Google client secret, the refresh token, the Gemini key and the PIN live only in Vercel's Environment Variables. **Never put them in this repository.**

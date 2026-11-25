@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '3.2.1';
+  const APP_VERSION = '3.3.0';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -365,189 +365,80 @@
     return getStatus();
   }
 
-  // ---------------- Google Drive (direct upload) ----------------
-  // Sign-in uses Google's own window; no password or secret key is stored in this app.
-  // Permission asked: "drive.file" = the app can only see files and folders it created or that you picked for it.
+  // ---------------- Google Drive (owner's Drive only, through this app's server) ----------------
+  // Every computer sends its backup to api/drive on Vercel with the app PIN. The server holds the owner's
+  // Google permission (set up once by the owner), so no Google sign-in ever happens on the hostel PCs and
+  // backups can only ever go to the owner's Drive.
   const GDrive = (() => {
-    const CLIENT_ID = '1094434090912-0t2r755pimfd4e7af20rasvqde3hdo4j.apps.googleusercontent.com';
-    const API_KEY = 'AIzaSyAIRwmRbqpCuRRlaoSfwvtUKvA9GqtacPw'; // only works from padma-hostel-finance.vercel.app, only for the folder picker
-    const APP_ID = '1094434090912';
-    const SCOPE = 'https://www.googleapis.com/auth/drive.file';
-    const API = 'https://www.googleapis.com/drive/v3';
-    const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-    const FOLDER = 'application/vnd.google-apps.folder';
-    let token = null, tokenExp = 0, tokenClient = null;
-
-    const loadScript = (src) => new Promise((res, rej) => {
-      if (document.querySelector(`script[src="${src}"]`)) return res();
-      const s = document.createElement('script'); s.src = src; s.async = true;
-      s.onload = res; s.onerror = () => rej(new Error('Could not reach Google (check the internet connection).'));
-      document.head.appendChild(s);
-    });
-    const cfg = async () => (await kvGet('gdrive')) || null; // { folderId, folderName, lastSync }
-    const isConnected = async () => !!((await cfg()) || {}).folderId;
-    const hasToken = () => !!token && Date.now() < tokenExp - 60000;
-
-    async function getToken(interactive) {
-      if (hasToken()) return token;
-      if (window.__PADMA_TEST_DRIVE__) { token = 'test-token'; tokenExp = Date.now() + 3600e3; return token; }
-      if (!interactive) throw new Error('Google sign-in needed — press Save again.');
-      await loadScript('https://accounts.google.com/gsi/client');
-      return new Promise((res, rej) => {
-        tokenClient = window.google.accounts.oauth2.initTokenClient({
-          client_id: CLIENT_ID, scope: SCOPE, prompt: '',
-          callback: (r) => {
-            if (r.error) return rej(new Error('Google sign-in was not completed (' + r.error + ').'));
-            token = r.access_token; tokenExp = Date.now() + (Number(r.expires_in) || 3600) * 1000; res(token);
-          },
-          error_callback: (e) => rej(new Error(e && e.type === 'popup_closed' ? 'The Google sign-in window was closed.' : 'Google sign-in failed' + (e && e.type ? ' (' + e.type + ')' : '') + '. If a pop-up was blocked, allow pop-ups for this app.')),
-        });
-        tokenClient.requestAccessToken();
-      });
+    const pinOrAsk = async () => { const p = await kvGet('scanPin'); if (!p) { const e = new Error('Enter the app PIN in Settings → Google Drive first.'); e.code = 'PIN'; throw e; } return p; };
+    async function call(body) {
+      const pin = await pinOrAsk();
+      let r;
+      try { r = await fetch('api/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, pin }) }); }
+      catch { throw new Error('Could not reach the backup server (check the internet connection).'); }
+      const out = await r.json().catch(() => ({}));
+      if (r.status === 401 && !out.reconnect) { await kvDel('scanPin'); const e = new Error(out.error || 'Wrong app PIN.'); e.code = 'PIN'; throw e; }
+      if (!r.ok) { const e = new Error(out.error || 'Backup server error ' + r.status); e.status = r.status; throw e; }
+      return out;
     }
-
-    async function api(method, url, body, headers = {}) {
-      const r = await fetch(url, { method, headers: { Authorization: 'Bearer ' + token, ...headers }, body });
-      if (r.status === 401) { token = null; throw new Error('Google sign-in expired — press Save again.'); }
-      if (!r.ok) {
-        let msg = r.status + ''; try { const j = await r.json(); msg = (j.error && j.error.message) || msg; } catch { /* ignore */ }
-        const err = new Error('Google Drive error: ' + msg); err.status = r.status; throw err;
-      }
-      return r.status === 204 ? null : r.json();
+    async function refresh() {
+      if (!navigator.onLine) return (await kvGet('driveStatus')) || { connected: false };
+      const st = await call({ action: 'status' });
+      const prev = (await kvGet('driveStatus')) || {};
+      if (st.folderId && prev.folderId !== st.folderId) await kvDel('driveManifest'); // new folder → upload everything again
+      const next = { ...prev, ...st, checkedAt: new Date().toISOString() };
+      await kvSet('driveStatus', next);
+      return next;
     }
-    const q = (s) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-
-    async function findOrMakeFolder(name, parentId, cache) {
-      const key = parentId + '/' + name;
-      if (cache[key]) return cache[key];
-      const found = await api('GET', `${API}/files?` + new URLSearchParams({
-        q: `name='${q(name)}' and '${parentId}' in parents and mimeType='${FOLDER}' and trashed=false`,
-        fields: 'files(id,name)', spaces: 'drive',
-      }));
-      const id = found.files && found.files[0] ? found.files[0].id
-        : (await api('POST', `${API}/files?fields=id`, JSON.stringify({ name, mimeType: FOLDER, parents: [parentId] }), { 'Content-Type': 'application/json' })).id;
-      cache[key] = id;
-      return id;
-    }
-    async function folderFor(rel, rootId, cache) {
-      let parent = rootId;
-      for (const part of rel.split('/').slice(0, -1)) parent = await findOrMakeFolder(part, parent, cache);
-      return parent;
-    }
-    async function upload(rel, blob, mime, rootId, cache, existingId) {
-      if (existingId) {
-        try {
-          await api('PATCH', `${UPLOAD}/files/${existingId}?uploadType=media&fields=id`, blob, { 'Content-Type': mime });
-          return existingId;
-        } catch (e) { if (e.status !== 404) throw e; } // file was deleted in Drive → create it again
-      }
-      const parent = await folderFor(rel, rootId, cache);
-      const meta = { name: rel.split('/').pop(), parents: [parent], mimeType: mime };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', blob);
-      return (await api('POST', `${UPLOAD}/files?uploadType=multipart&fields=id`, form)).id;
+    const isConnected = async () => !!((await kvGet('driveStatus')) || {}).connected;
+    async function upload(rel, blob, mime) {
+      const { uploadUrl } = await call({ action: 'start', path: rel, mime, size: blob.size });
+      let r;
+      try { r = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: blob }); }
+      catch { throw new Error('Upload to Google Drive was interrupted.'); }
+      if (!r.ok) throw new Error('Google Drive did not accept ' + rel.split('/').pop() + ' (' + r.status + ').');
     }
 
     async function sync(all, force) {
-      const c = await cfg();
-      if (!c || !c.folderId) throw new Error('Google Drive is not connected.');
-      await getToken(false);
-      const man = force ? {} : ((await kvGet('driveManifest')) || {}); // rel -> { hash, id }
-      const folderCache = (await kvGet('driveFolders')) || {};
-      if (folderCache.__root !== c.folderId) { for (const k of Object.keys(folderCache)) delete folderCache[k]; folderCache.__root = c.folderId; }
+      const st = await refresh();
+      if (!st.connected) throw new Error(st.error || 'Google Drive is not connected yet.');
+      const man = force ? {} : ((await kvGet('driveManifest')) || {}); // rel -> hash
       const next = {};
       let changed = 0, removed = 0, errors = 0, completed = false;
       try {
-        // data backup: always
         const bRel = `${BACKUP_DIR}/${BACKUP_FILE}`;
         status = { ...status, message: 'Uploading backup to Google Drive…' }; notify();
-        const bId = await upload(bRel, new Blob([JSON.stringify(state)], { type: 'application/json' }), 'application/json', c.folderId, folderCache, (man[bRel] || {}).id);
-        next[bRel] = { hash: '', id: bId };
-        // PDF reports: only new or changed ones
+        await upload(bRel, new Blob([JSON.stringify(state)], { type: 'application/json' }), 'application/json');
+        next[bRel] = 'data';
         let done = 0;
         for (const f of all.files) {
           done += 1;
           const h = await sha(f.html);
-          const old = man[f.rel];
-          if (old && old.hash === h) { next[f.rel] = old; continue; }
+          if (man[f.rel] === h) { next[f.rel] = h; continue; }
           status = { ...status, message: `Uploading to Google Drive… ${done}/${all.files.length}` }; notify();
-          try {
-            const id = await upload(f.rel, await all.getPdf(f), 'application/pdf', c.folderId, folderCache, old && old.id);
-            next[f.rel] = { hash: h, id }; changed += 1;
-          } catch (e) {
-            if (/sign-in expired/.test(e.message)) throw e;
-            errors += 1; console.error('Drive upload failed', f.rel, e);
-            if (old) next[f.rel] = { hash: '', id: old.id };
-          }
+          try { await upload(f.rel, await all.getPdf(f), 'application/pdf'); next[f.rel] = h; changed += 1; }
+          catch (e) { if (e.code === 'PIN' || e.status === 401) throw e; errors += 1; console.error('Drive upload failed', f.rel, e); }
         }
-        // reports that no longer exist (e.g. a deleted month): move to Drive's Trash
         const wanted = new Set(all.files.map((f) => f.rel).concat([bRel]));
-        for (const [rel, v] of Object.entries(man)) {
-          if (wanted.has(rel) || !v || !v.id) continue;
-          try { await api('PATCH', `${API}/files/${v.id}?fields=id`, JSON.stringify({ trashed: true }), { 'Content-Type': 'application/json' }); removed += 1; } catch { /* already gone */ }
+        for (const rel of Object.keys(man)) {
+          if (wanted.has(rel)) continue;
+          try { await call({ action: 'trash', path: rel }); removed += 1; } catch { /* ignore */ }
         }
         completed = true;
       } finally {
-        // finished: keep exactly what is in Drive now; stopped half-way: keep old entries + the progress made
         await kvSet('driveManifest', completed ? next : { ...man, ...next });
-        await kvSet('driveFolders', folderCache);
       }
-      await kvSet('gdrive', { ...c, lastSync: new Date().toISOString() });
+      await kvSet('driveStatus', { ...((await kvGet('driveStatus')) || {}), lastSync: new Date().toISOString() });
       return { changed, removed, errors };
     }
-
-    // Quick backup of the data file only (used automatically after changes, when already signed in).
     async function backupOnly() {
-      const c = await cfg();
-      if (!c || !c.folderId || !hasToken() || !navigator.onLine) return false;
-      const man = (await kvGet('driveManifest')) || {};
-      const folderCache = (await kvGet('driveFolders')) || {};
-      if (folderCache.__root !== c.folderId) return false;
-      const bRel = `${BACKUP_DIR}/${BACKUP_FILE}`;
-      const id = await upload(bRel, new Blob([JSON.stringify(state)], { type: 'application/json' }), 'application/json', c.folderId, folderCache, (man[bRel] || {}).id);
-      man[bRel] = { hash: '', id };
-      await kvSet('driveManifest', man); await kvSet('driveFolders', folderCache);
-      await kvSet('gdrive', { ...c, lastBackup: new Date().toISOString() });
+      if (!navigator.onLine || !(await isConnected()) || !(await kvGet('scanPin'))) return false;
+      await upload(`${BACKUP_DIR}/${BACKUP_FILE}`, new Blob([JSON.stringify(state)], { type: 'application/json' }), 'application/json');
+      await kvSet('driveStatus', { ...((await kvGet('driveStatus')) || {}), lastBackup: new Date().toISOString() });
       return true;
     }
-
-    // Sign in, then let the user pick (or create) the Drive folder with Google's own folder picker.
-    async function connect() {
-      if (!navigator.onLine) throw new Error('Connect to the internet to set up Google Drive.');
-      await getToken(true);
-      if (window.__PADMA_TEST_DRIVE__) { const t = window.__PADMA_TEST_DRIVE__; await kvSet('gdrive', { folderId: t.folderId, folderName: t.folderName }); await kvDel('driveManifest'); await kvDel('driveFolders'); return t.folderName; }
-      await loadScript('https://apis.google.com/js/api.js');
-      await new Promise((res) => window.gapi.load('picker', res));
-      const P = window.google.picker;
-      const picked = await new Promise((res) => {
-        // "My Drive" folders, plus folders someone shared with this account (e.g. the owner's folder shared with the hostel Gmail)
-        const mine = new P.DocsView(P.ViewId.FOLDERS).setSelectFolderEnabled(true).setIncludeFolders(true).setMimeTypes(FOLDER).setParent('root');
-        const shared = new P.DocsView(P.ViewId.FOLDERS).setSelectFolderEnabled(true).setIncludeFolders(true).setMimeTypes(FOLDER).setOwnedByMe(false);
-        new P.PickerBuilder()
-          .setTitle('Choose the Google Drive folder for Padma Hostel Finance')
-          .addView(mine)
-          .addView(shared)
-          .setOAuthToken(token).setDeveloperKey(API_KEY).setAppId(APP_ID)
-          .setCallback((d) => {
-            if (d.action === P.Action.PICKED) res(d.docs[0]);
-            else if (d.action === P.Action.CANCEL) res(null);
-          })
-          .build().setVisible(true);
-      });
-      if (!picked) throw new Error('No Google Drive folder was chosen.');
-      const prev = await cfg();
-      await kvSet('gdrive', { folderId: picked.id, folderName: picked.name });
-      if (!prev || prev.folderId !== picked.id) { await kvDel('driveManifest'); await kvDel('driveFolders'); }
-      return picked.name;
-    }
-    async function disconnect() {
-      try { if (token && window.google && window.google.accounts) window.google.accounts.oauth2.revoke(token, () => {}); } catch { /* ignore */ }
-      token = null; tokenExp = 0;
-      await kvDel('gdrive'); await kvDel('driveManifest'); await kvDel('driveFolders');
-    }
-    async function info() { const c = await cfg(); return { connected: !!(c && c.folderId), folderName: c ? c.folderName : '', lastSync: c ? c.lastSync : null, lastBackup: c ? c.lastBackup : null, signedIn: hasToken() }; }
-    return { isConnected, getToken, sync, backupOnly, connect, disconnect, info, hasToken };
+    async function info() { const c = (await kvGet('driveStatus')) || {}; return { connected: !!c.connected, email: c.email || '', folderName: c.folderName || '', lastSync: c.lastSync || null, lastBackup: c.lastBackup || null, error: c.error || '', hasPin: !!(await kvGet('scanPin')) }; }
+    return { isConnected, refresh, sync, backupOnly, info };
   })();
 
   // ---------------- backup file download / restore ----------------
@@ -581,7 +472,7 @@
   window.padma = {
     version: APP_VERSION,
     auth,
-    load: async (token) => { await ready; guard(token); GDrive.isConnected().then((c) => { if (c && navigator.onLine && !window.__PADMA_TEST_DRIVE__) { const sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; if (!document.querySelector('script[src="' + sc.src + '"]')) document.head.appendChild(sc); } }).catch(() => {}); return { state, folder: ((await getFolder()) || {}).name || '', dbFile: 'Browser storage on this computer', status: getStatus() }; },
+    load: async (token) => { await ready; guard(token); if (navigator.onLine) kvGet('scanPin').then((p) => p && GDrive.refresh()).catch(() => {}); return { state, folder: ((await getFolder()) || {}).name || '', dbFile: 'Browser storage on this computer', status: getStatus() }; },
     save: async (token, next) => { guard(token); await storeState(next); return getStatus(); },
     openFolder: async (token) => { guard(token); return chooseFolder(); },
     isOnline: async () => navigator.onLine,
@@ -641,10 +532,9 @@
     },
     gdrive: {
       info: async (token) => { guard(token); return GDrive.info(); },
-      connect: async (token) => { guard(token); return GDrive.connect(); },
-      disconnect: async (token) => { guard(token); return GDrive.disconnect(); },
-      // Call at the very start of a click (before other waiting) so Google's sign-in window is allowed to open.
-      prepare: async (token) => { guard(token); if (!(await GDrive.isConnected()) || !navigator.onLine || GDrive.hasToken()) return true; await GDrive.getToken(true); return true; },
+      // asks the server whether the owner's Drive is connected (needs internet + PIN)
+      check: async (token) => { guard(token); await GDrive.refresh(); return GDrive.info(); },
+      prepare: async () => true,
     },
     backup: {
       download: async (token) => { guard(token); downloadBackup(); return true; },

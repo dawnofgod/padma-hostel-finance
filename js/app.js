@@ -118,7 +118,6 @@ async function doSave(web) {
       toast('Backup file downloaded. Keep a copy on a USB stick or in Google Drive.');
     } else {
       $('saveLabel').textContent = 'Saving…';
-      await P.gdrive.prepare(token); // opens Google sign-in first if needed (must happen right after the click)
       STATUS = await P.reports.save(token);
       toast(STATUS.errors ? STATUS.message : (STATUS.drive ? `Saved and uploaded to Google Drive. ${STATUS.changed} PDF(s) updated.` + (STATUS.message ? ' ' + STATUS.message + '.' : '') : (STATUS.message ? STATUS.message + '.' : `Saved. ${STATUS.changed} PDF(s) updated in the month folders.`)), !!STATUS.errors || !!STATUS.message);
     }
@@ -584,7 +583,7 @@ function renderSettings() {
     <div class="text-xs mono text-slate-600 mt-3 break-all" id="driveInfo">Save folder: checking…</div>
     <div class="flex flex-wrap gap-2 mt-3"><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="open-folder">📂 Choose save folder</button><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="regen">Rebuild all PDFs</button></div>
     <div class="font-bold mt-5 mb-2">Google Drive</div>
-    <div class="text-xs text-slate-500">Upload the data backup and all PDF reports straight to your Google Drive every time you press 💾 Save (no extra program needed). The data backup is also uploaded automatically a few seconds after changes while you are signed in.</div>
+    <div class="text-xs text-slate-500">Every 💾 Save uploads the data backup and all PDF reports to the <b>owner's</b> Google Drive — from any computer, without signing in to Google here. The data backup is also uploaded automatically about 20 seconds after each change. Needs internet and the app PIN.</div>
     <div class="text-xs mono text-slate-600 mt-2 break-all" id="gdInfo">Google Drive: checking…</div>
     <div class="flex flex-wrap gap-2 mt-3" id="gdBtns"></div>
     <div class="font-bold mt-5 mb-2">Backup file</div>
@@ -592,17 +591,17 @@ function renderSettings() {
     <div class="flex flex-wrap gap-2 mt-3"><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="bk-download">⬇ Download backup file</button><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="bk-restore">⬆ Restore from backup…</button><input type="file" id="bkFile" accept=".json,application/json" class="hidden"></div>
     <div class="text-xs text-slate-400 mt-4">App version ${esc(P.version)}</div></div>
   <div class="card p-5"><div class="font-bold mb-3">Login (change username / password)</div>${field('Current password', '<input type="password" class="field-input" id="acOld">')}${field('New username', '<input class="field-input" id="acUser">')}${field('New password (min 6 characters)', '<input type="password" class="field-input" id="acNew">')}<button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="acc-save">Update login</button>${INFO.fallback ? '<div class="text-xs text-amber-700 mt-2">Default login admin/admin is active — please change it.</div>' : ''}</div></div>`;
-  P.gdrive.info(token).then((g) => {
+  const gdRender = (g) => {
     const e = $('gdInfo'), b = $('gdBtns'); if (!e || !b) return;
-    if (!g.connected) {
-      e.innerHTML = '<span class="text-amber-700">Not connected.</span>';
-      b.innerHTML = '<button class="btn text-sm px-3 py-2 rounded-md text-white font-semibold dynamic-bg" data-act="gd-connect">☁ Connect Google Drive</button>';
-    } else {
-      const when = (t) => (t ? new Date(t).toLocaleString() : 'not yet');
-      e.innerHTML = 'Google Drive folder: <b>' + esc(g.folderName) + '</b> · ✔ connected · last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '');
-      b.innerHTML = '<button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="gd-connect">Change Drive folder</button><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="gd-disconnect">Disconnect</button>';
-    }
-  }).catch(() => {});
+    const when = (t) => (t ? new Date(t).toLocaleString() : 'not yet');
+    if (g.connected) e.innerHTML = 'Backups go to: <b>' + esc(g.email || 'owner') + '</b> · folder <b>' + esc(g.folderName) + '</b> · ✔ connected<br>last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '');
+    else if (!g.hasPin) e.innerHTML = '<span class="text-amber-700">Enter the app PIN to use Google Drive backup on this computer.</span>';
+    else e.innerHTML = '<span class="text-amber-700">' + esc(g.error || 'Not connected yet: the owner must connect their Google Drive once.') + '</span>';
+    b.innerHTML = (g.hasPin ? '<button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="gd-check">↻ Check connection</button>' : '<button class="btn text-sm px-3 py-2 rounded-md text-white font-semibold dynamic-bg" data-act="gd-pin">Enter app PIN</button>')
+      + (g.connected ? '' : '<button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="gd-owner">Connect owner\'s Google Drive (owner only)</button>')
+      + (g.hasPin ? '<button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="gd-pin">Change PIN</button>' : '');
+  };
+  P.gdrive.info(token).then((g) => { gdRender(g); if (g.hasPin && navigator.onLine) P.gdrive.check(token).then(gdRender).catch((err) => { const e = $('gdInfo'); if (e) e.innerHTML = '<span class="text-rose-600">' + esc(err.message) + '</span>'; }); }).catch(() => {});
   P.backup.folderInfo(token).then((f) => {
     const e = $('driveInfo'); if (!e) return;
     if (!f.supported) { e.innerHTML = '<span class="text-rose-600">Saving into a folder needs Microsoft Edge or Google Chrome. Use “Download backup file” instead.</span>'; return; }
@@ -648,11 +647,12 @@ document.addEventListener('click', async (e) => {
     else if (a === 'cat-del') { S.categories = S.categories.filter((c) => !(c.type === type && c.name === el.dataset.name)); await persist(); renderSettings(); }
     else if (a === 'set-save') { [1, 2, 3, 4].forEach((n) => { S.settings.bedPrices[n] = num($('bp' + n).value); }); S.settings.admission = { admissionFee: num($('sAdm').value), deposit: num($('sDep').value), formFee: num($('sForm').value) }; await persist(); $('admDeposit').dataset.touched = ''; toast('Settings saved.'); }
     else if (a === 'open-folder') { const name = await P.backup.chooseFolder(token); toast('Save folder set: ' + name + '. Press 💾 Save to write the reports there.'); renderSettings(); }
-    else if (a === 'gd-connect') { const name = await P.gdrive.connect(token); toast('Google Drive connected: “' + name + '”. Press 💾 Save to upload everything.'); renderSettings(); }
-    else if (a === 'gd-disconnect') { if (await confirmBox('Disconnect Google Drive?', 'The app will stop uploading to Google Drive. Files already in Drive stay there.', 'Disconnect')) { await P.gdrive.disconnect(token); toast('Google Drive disconnected.'); renderSettings(); } }
+    else if (a === 'gd-pin') { if (await askScanPin('Enter the app PIN (the SCAN_PIN set in Vercel). It is used for the form scanner and Google Drive backup, and is remembered on this computer.')) { toast('PIN saved.'); renderSettings(); } }
+    else if (a === 'gd-check') { const g = await P.gdrive.check(token); toast(g.connected ? 'Connected: backups go to ' + (g.email || 'the owner') + '.' : (g.error || 'Not connected yet.'), !g.connected); renderSettings(); }
+    else if (a === 'gd-owner') { window.open('api/drive', '_blank', 'noopener'); }
     else if (a === 'bk-download') { await P.backup.download(token); toast('Backup file downloaded.'); }
     else if (a === 'bk-restore') { const fi = $('bkFile'); fi.value = ''; fi.onchange = () => restoreFrom(fi.files[0]); fi.click(); }
-    else if (a === 'regen') { await P.gdrive.prepare(token); toast('Rebuilding all PDFs…'); STATUS = await P.reports.regenerate(token); updateSaveUi(); toast(STATUS.errors ? STATUS.message : 'All PDFs rebuilt.', !!STATUS.errors); }
+    else if (a === 'regen') { toast('Rebuilding all PDFs…'); STATUS = await P.reports.regenerate(token); updateSaveUi(); toast(STATUS.errors ? STATUS.message : 'All PDFs rebuilt.', !!STATUS.errors); }
     else if (a === 'acc-save') { const r = await P.auth.change(token, $('acOld').value, $('acUser').value.trim(), $('acNew').value); toast(r === true || (r && r.ok !== false) ? 'Login updated.' : (r.error || 'Could not update.'), r && r.ok === false); }
   } catch (err) { toast(err.message || String(err), true); }
 });
