@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '3.3.0';
+  const APP_VERSION = '3.3.1';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 

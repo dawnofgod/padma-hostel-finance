@@ -2,7 +2,7 @@
 // To publish an update: change VERSION below (e.g. 3.0.1) and upload the changed files to GitHub.
 // Open copies of the app notice it and show "A new version of the app is ready – Update now".
 // Your records are NOT stored here; updates never touch them.
-const VERSION = '3.3.0';
+const VERSION = '3.3.1';
 const CACHE = 'padma-finance-' + VERSION;
 const FILES = [
   './',
@@ -48,11 +48,16 @@ self.addEventListener('message', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return; // server pages (Drive connect, scanner) always come from the internet
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     if (req.mode === 'navigate') {
-      return (await cache.match('index.html')) || fetch(req);
+      const scope = new URL(self.registration.scope).pathname;
+      const isApp = url.pathname === scope || url.pathname === scope + 'index.html';
+      if (isApp) return (await cache.match('index.html')) || fetch(req);
+      try { return await fetch(req); } catch { return (await cache.match(req, { ignoreSearch: true })) || (await cache.match('index.html')); }
     }
     const hit = await cache.match(req, { ignoreSearch: true });
     if (hit) return hit;
