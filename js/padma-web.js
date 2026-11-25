@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '3.2.0';
+  const APP_VERSION = '3.2.1';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -521,10 +521,13 @@
       await new Promise((res) => window.gapi.load('picker', res));
       const P = window.google.picker;
       const picked = await new Promise((res) => {
-        const view = new P.DocsView(P.ViewId.FOLDERS).setSelectFolderEnabled(true).setIncludeFolders(true).setMimeTypes(FOLDER).setParent('root');
+        // "My Drive" folders, plus folders someone shared with this account (e.g. the owner's folder shared with the hostel Gmail)
+        const mine = new P.DocsView(P.ViewId.FOLDERS).setSelectFolderEnabled(true).setIncludeFolders(true).setMimeTypes(FOLDER).setParent('root');
+        const shared = new P.DocsView(P.ViewId.FOLDERS).setSelectFolderEnabled(true).setIncludeFolders(true).setMimeTypes(FOLDER).setOwnedByMe(false);
         new P.PickerBuilder()
           .setTitle('Choose the Google Drive folder for Padma Hostel Finance')
-          .addView(view)
+          .addView(mine)
+          .addView(shared)
           .setOAuthToken(token).setDeveloperKey(API_KEY).setAppId(APP_ID)
           .setCallback((d) => {
             if (d.action === P.Action.PICKED) res(d.docs[0]);

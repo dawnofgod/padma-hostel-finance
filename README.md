@@ -36,6 +36,8 @@ App address: **https://padma-hostel-finance.vercel.app/**  (hosted free on Verce
 3. In Google's folder picker, choose **My Drive → Padma Hostel Finance** and click **Select**.
 4. Press **💾 Save**. The data backup and all PDF reports are uploaded into that folder, in the same month-folder layout. Later Saves upload only what changed. While you're signed in, the data backup is also uploaded automatically about 20 seconds after each change.
 
+**Using the owner's Drive without the owner's Gmail on the hostel PC:** share the owner's Drive folder with a separate hostel Gmail as **Editor**, sign in on the hostel PC with the hostel Gmail, and in the picker open the **"Shared with me"** tab to choose that folder. Every Gmail that connects must be listed as a *test user* in Google Cloud (Google Auth Platform → Audience).
+
 If the PC is offline, Save keeps everything on the computer and tells you to press Save again when you're online. Google may ask you to sign in again about once an hour; that's one click on Save.
 
 ## 3b. (Optional) Also save into a folder on this PC
