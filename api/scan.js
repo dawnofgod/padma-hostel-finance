@@ -88,17 +88,27 @@ module.exports = async (req, res) => {
   if (!/^image\/(jpeg|png|webp)$/.test(mime) || data.length < 1000 || data.length > 6_000_000) return res.status(400).json({ error: 'Please send a JPG or PNG photo of the form.' });
 
   const models = process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : MODELS;
-  let last;
+  const started = Date.now();
+  const BUSY = [500, 502, 503, 504];
+  let last, sawQuota = false, sawBusy = false;
   for (const m of models) {
-    try {
-      const fields = await callGemini(m, key, mime, data);
-      return res.status(200).json({ ok: true, model: m, fields });
-    } catch (e) {
-      last = e;
-      // model not available for this key / quota used up for this model → try the next one
-      if (![400, 403, 404, 429].includes(e.status)) break;
+    // a busy model ("high demand") gets one more try after a short pause, then the next model is used
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (Date.now() - started > 45000) break; // stay inside Vercel's time limit
+      try {
+        const fields = await callGemini(m, key, mime, data);
+        return res.status(200).json({ ok: true, model: m, fields });
+      } catch (e) {
+        last = e;
+        if (e.status === 429) sawQuota = true;
+        if (BUSY.includes(e.status)) { sawBusy = true; if (attempt === 0) { await new Promise((r) => setTimeout(r, 2500)); continue; } }
+        break;
+      }
     }
+    // model missing for this key, its quota used up, or busy → try the next model; other errors stop here
+    if (!last || ![400, 403, 404, 429, ...BUSY].includes(last.status)) break;
   }
-  const quota = last && last.status === 429;
-  return res.status(quota ? 429 : 502).json({ error: quota ? 'The free Gemini limit for today is used up. Try again tomorrow (it resets at about 1:45 PM Nepal time).' : 'Could not read the form: ' + (last ? last.message : 'unknown error') });
+  if (sawBusy) return res.status(503).json({ error: 'Google\'s free scanner is very busy right now. Please wait a minute and press the scan button again.' });
+  if (sawQuota) return res.status(429).json({ error: 'The free Gemini limit is used up for now. Try again later (the daily limit resets at about 1:45 PM Nepal time).' });
+  return res.status(502).json({ error: 'Could not read the form: ' + (last ? last.message : 'unknown error') });
 };
