@@ -29,11 +29,20 @@ App address: **https://padma-hostel-finance.vercel.app/**  (hosted free on Verce
    - `C:\Users\<your name>\AppData\Roaming\PADMA HOSTEL FINANCE\padma-data-v3.json` (the old app's live data. Type `%APPDATA%\PADMA HOSTEL FINANCE` in the File Explorer address bar to find it.)
 3. The app shows how many students, fees and entries it found. Press **Replace & restore**.
 
-## 3. Set up automatic Google Drive backup (one time)
+## 3. Connect Google Drive (one time, needs internet)
 
-1. Install **Google Drive for desktop** (google.com/drive/download) and sign in. A **Google Drive (G:)** drive appears.
-2. In the app: **Settings → 📂 Choose save folder**. Pick (or create) a folder inside Google Drive, for example `G:\My Drive\PADMA HOSTEL FINANCE`. Click **Allow** / **Edit files** when the browser asks.
-3. Press **💾 Save** (or **Ctrl+S**). The app writes everything there, exactly like the old app:
+1. In the app: **Settings → Google Drive → ☁ Connect Google Drive**.
+2. Sign in with your Google account and allow access. The app can only see files and folders it creates, or that you pick for it.
+3. In Google's folder picker, choose **My Drive → Padma Hostel Finance** and click **Select**.
+4. Press **💾 Save**. The data backup and all PDF reports are uploaded into that folder, in the same month-folder layout. Later Saves upload only what changed. While you're signed in, the data backup is also uploaded automatically about 20 seconds after each change.
+
+If the PC is offline, Save keeps everything on the computer and tells you to press Save again when you're online. Google may ask you to sign in again about once an hour; that's one click on Save.
+
+## 3b. (Optional) Also save into a folder on this PC
+
+You only need this if you want a copy in a normal folder too (for example a USB drive, or Google Drive for desktop).
+1. In the app: **Settings → 📂 Choose save folder**. Pick (or create) a folder. Click **Allow** / **Edit files** when the browser asks.
+2. Press **💾 Save** (or **Ctrl+S**). The app writes everything there, exactly like the old app:
 
 ```
 PADMA HOSTEL FINANCE\
@@ -44,7 +53,7 @@ PADMA HOSTEL FINANCE\
   Padma Girls Hostel\...
 ```
 
-Google Drive for desktop uploads the folder to your Google account by itself. After the browser restarts it may ask once more for permission the next time you press Save; click **Allow**.
+After the browser restarts it may ask once more for permission the next time you press Save; click **Allow**.
 
 **Extra safety:** the **⬇ Backup file** button (top right) downloads one file with all data, for a USB stick or email.
 
@@ -73,7 +82,11 @@ Everything works like the old app: Dashboard, Rooms, Admissions, Students, Month
 |---|---|
 | `index.html`, `styles.css`, `tailwind.css`, `js/app.js` | The screens (the same as the old app) |
 | `js/core.js` | Business rules, data format and PDF report layouts from the old app |
-| `js/padma-web.js` | Storage on the computer, login, PDF making, saving to the folder |
+| `js/padma-web.js` | Storage on the computer, login, PDF making, saving to the folder and to Google Drive |
 | `js/bs-data.js` | Nepali calendar (B.S.) month lengths, 2000–2090 |
 | `sw.js`, `js/pwa.js`, `manifest.webmanifest` | Offline support, install and automatic updates |
 | `vendor/` | html2canvas and jsPDF (MIT licence), used to make the PDF files |
+
+## Google Drive keys in the code
+
+`js/padma-web.js` contains a Google **client ID** and a browser **API key**. These are meant to be public. The client ID only works from `https://padma-hostel-finance.vercel.app`, and the API key only allows the folder picker from that same address. Neither can open anyone's Drive without that person signing in. **Never put a client secret or refresh token in this repository.**
