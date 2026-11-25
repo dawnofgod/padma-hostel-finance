@@ -2,12 +2,11 @@
 // and returns the filled-in values as JSON. Runs on Vercel, so the Gemini key never reaches the browser
 // or GitHub.
 //
-// Needs two Environment Variables in Vercel (Project → Settings → Environment Variables):
-//   GEMINI_API_KEY  – from https://aistudio.google.com/apikey
-//   SCAN_PIN        – any PIN you choose; the app asks for it once, so strangers can't use your free quota
+// Needs GEMINI_API_KEY in Vercel (Project → Settings → Environment Variables), from https://aistudio.google.com/apikey.
+// Only activated, not-frozen computers can scan (they send their activation token).
 // Optional: GEMINI_MODEL – to force one model (otherwise the list below is tried in order).
 
-const crypto = require('crypto');
+const L = require('./_lib');
 
 const MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 const FIELDS = {
@@ -56,11 +55,6 @@ Extract what is written in each field. Rules:
 - Dates: give them exactly as written (e.g. "02/01/2004", "2080-05-12") and set dateCalendar.
 - If a value is hard to read, give your best reading and list the field name in "unsure".`;
 
-function safeEqual(a, b) {
-  const x = Buffer.from(String(a)); const y = Buffer.from(String(b));
-  return x.length === y.length && crypto.timingSafeEqual(x, y);
-}
-
 async function callGemini(model, key, mime, data) {
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
@@ -79,10 +73,12 @@ async function callGemini(model, key, mime, data) {
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Use POST.' });
-  const key = process.env.GEMINI_API_KEY, pin = process.env.SCAN_PIN;
-  if (!key || !pin) return res.status(503).json({ error: 'The scanner is not set up yet: add GEMINI_API_KEY and SCAN_PIN in Vercel → Settings → Environment Variables, then redeploy.' });
-  const b = req.body || {};
-  if (!safeEqual(b.pin || '', pin)) { await new Promise((r) => setTimeout(r, 800)); return res.status(401).json({ error: 'Wrong scan PIN.' }); }
+  const key = process.env.GEMINI_API_KEY;
+  if (!key || !L.dbReady()) return res.status(503).json({ error: 'The scanner is not set up yet on the server.' });
+  const b = L.body(req);
+  const client = await L.clientByToken(b.token);
+  if (!client) { await L.sleep(500); return res.status(401).json({ error: 'This computer is not activated. Enter the activation code in Settings.', deactivated: true }); }
+  if (client.frozen === '1') return res.status(423).json({ error: 'This account is frozen. Please contact the admin.', frozen: true });
   const mime = String(b.mime || '');
   const data = String(b.image || '');
   if (!/^image\/(jpeg|png|webp)$/.test(mime) || data.length < 1000 || data.length > 6_000_000) return res.status(400).json({ error: 'Please send a JPG or PNG photo of the form.' });
@@ -97,6 +93,7 @@ module.exports = async (req, res) => {
       if (Date.now() - started > 45000) break; // stay inside Vercel's time limit
       try {
         const fields = await callGemini(m, key, mime, data);
+        try { await L.hset('client:' + client.id, { lastSeen: Date.now(), scans: (Number(client.scans) || 0) + 1 }); } catch { /* ignore */ }
         return res.status(200).json({ ok: true, model: m, fields });
       } catch (e) {
         last = e;

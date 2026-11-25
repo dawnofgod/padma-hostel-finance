@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '3.3.1';
+  const APP_VERSION = '4.0.0';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -321,6 +321,7 @@
     syncing = true;
     status = { ...status, busy: true, message: 'Saving…' }; notify();
     try {
+      if (await Client.isFrozen()) throw new Error('This account is frozen. Please contact the admin.');
       const driveOn = await GDrive.isConnected();
       const hasLocal = !!(await getFolder());
       if (!driveOn && !hasLocal && !folderSupported) throw new Error('Connect Google Drive in Settings to save the reports.');
@@ -365,43 +366,82 @@
     return getStatus();
   }
 
-  // ---------------- Google Drive (owner's Drive only, through this app's server) ----------------
-  // Every computer sends its backup to api/drive on Vercel with the app PIN. The server holds the owner's
-  // Google permission (set up once by the owner), so no Google sign-in ever happens on the hostel PCs and
-  // backups can only ever go to the owner's Drive.
-  const GDrive = (() => {
-    const pinOrAsk = async () => { const p = await kvGet('scanPin'); if (!p) { const e = new Error('Enter the app PIN in Settings → Google Drive first.'); e.code = 'PIN'; throw e; } return p; };
-    async function call(body) {
-      const pin = await pinOrAsk();
+  // ---------------- This computer as a "client" of the admin panel ----------------
+  // The admin adds a client in the admin panel and gives an activation code. Typed once here, it gives this
+  // computer a token. With it the app: tells the admin panel it is online (every 2 minutes), backs up to the
+  // folder the admin assigned in the owner's Google Drive, can use the form scanner, and gets locked if frozen.
+  const Client = (() => {
+    const listeners = [];
+    const tok = async () => { await ready; return kvGet('clientToken'); };
+    async function setFrozen(v) {
+      const was = !!(await kvGet('frozen'));
+      await kvSet('frozen', !!v);
+      if (was !== !!v) listeners.forEach((cb) => { try { cb(!!v); } catch { /* ignore */ } });
+    }
+    async function call(body, opts = {}) {
+      const token = await tok();
+      if (!token) { const e = new Error('This computer is not activated yet. Open Settings → Activate this computer and enter the code from the admin.'); e.code = 'ACTIVATE'; throw e; }
       let r;
-      try { r = await fetch('api/drive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, pin }) }); }
-      catch { throw new Error('Could not reach the backup server (check the internet connection).'); }
+      try { r = await fetch(opts.url || 'api/client', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, token }) }); }
+      catch { throw new Error('Could not reach the server (check the internet connection).'); }
       const out = await r.json().catch(() => ({}));
-      if (r.status === 401 && !out.reconnect) { await kvDel('scanPin'); const e = new Error(out.error || 'Wrong app PIN.'); e.code = 'PIN'; throw e; }
-      if (!r.ok) { const e = new Error(out.error || 'Backup server error ' + r.status); e.status = r.status; throw e; }
+      if (r.status === 423 || out.frozen) { await setFrozen(true); const e = new Error(out.error || 'This account is frozen. Please contact the admin.'); e.code = 'FROZEN'; throw e; }
+      if (r.status === 401 && out.deactivated) { await kvDel('clientToken'); await kvDel('clientInfo'); const e = new Error(out.error); e.code = 'ACTIVATE'; throw e; }
+      if (!r.ok) { const e = new Error(out.error || 'Server error ' + r.status); e.status = r.status; throw e; }
       return out;
     }
-    async function refresh() {
-      if (!navigator.onLine) return (await kvGet('driveStatus')) || { connected: false };
-      const st = await call({ action: 'status' });
-      const prev = (await kvGet('driveStatus')) || {};
-      if (st.folderId && prev.folderId !== st.folderId) await kvDel('driveManifest'); // new folder → upload everything again
-      const next = { ...prev, ...st, checkedAt: new Date().toISOString() };
-      await kvSet('driveStatus', next);
-      return next;
+    function stats() {
+      const cnt = (k) => logic.BRANCH_IDS.reduce((a, b) => a + ((state && state.branches[b][k]) || []).length, 0);
+      const ua = navigator.userAgent;
+      const os = /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Android/.test(ua) ? 'Android' : /Linux/.test(ua) ? 'Linux' : 'Computer';
+      const br = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : 'Browser';
+      return { version: APP_VERSION, dataBytes: state ? JSON.stringify(state).length : 0, records: cnt('income') + cnt('expenditure') + cnt('fees'), students: cnt('students'), device: `${os} · ${br}` };
     }
-    const isConnected = async () => !!((await kvGet('driveStatus')) || {}).connected;
+    async function ping() {
+      if (!navigator.onLine || !(await tok())) return info();
+      try {
+        const out = await call({ action: 'ping', stats: stats() });
+        await setFrozen(false);
+        await kvSet('clientInfo', { name: out.name, driveReady: !!(out.drive && out.drive.ready), folderName: (out.drive && out.drive.folderName) || '', checkedAt: new Date().toISOString() });
+      } catch (e) { if (e.code !== 'FROZEN' && e.code !== 'ACTIVATE') console.warn('ping failed', e); }
+      return info();
+    }
+    async function activate(code) {
+      await ready;
+      if (!navigator.onLine) throw new Error('Activation needs internet.');
+      let r;
+      try { r = await fetch('api/client', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'activate', code, device: stats().device }) }); }
+      catch { throw new Error('Could not reach the server (check the internet connection).'); }
+      const out = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(out.error || 'Activation failed (' + r.status + ').');
+      await kvSet('clientToken', out.token);
+      await kvDel('driveManifest'); // new client/folder → upload everything once
+      await setFrozen(!!out.frozen);
+      await kvSet('clientInfo', { name: out.name, driveReady: false });
+      return ping();
+    }
+    async function info() {
+      await ready;
+      const i = (await kvGet('clientInfo')) || {};
+      return { activated: !!(await tok()), name: i.name || '', driveReady: !!i.driveReady, folderName: i.folderName || '', checkedAt: i.checkedAt || null, frozen: !!(await kvGet('frozen')), lastSync: i.lastSync || null, lastBackup: i.lastBackup || null };
+    }
+    async function note(k) { const i = (await kvGet('clientInfo')) || {}; i[k] = new Date().toISOString(); await kvSet('clientInfo', i); }
+    return { call, ping, activate, info, note, isFrozen: async () => { await ready; return !!(await kvGet('frozen')); }, onFrozen: (cb) => listeners.push(cb), hasToken: async () => !!(await tok()) };
+  })();
+  setInterval(() => { if (!document.hidden) Client.ping(); }, 120000);
+  window.addEventListener('online', () => Client.ping());
+
+  // ---------------- Google Drive backup (owner's Drive, folder chosen by the admin) ----------------
+  const GDrive = (() => {
+    const isConnected = async () => (await Client.hasToken()) && (await Client.info()).driveReady;
     async function upload(rel, blob, mime) {
-      const { uploadUrl } = await call({ action: 'start', path: rel, mime, size: blob.size });
+      const { uploadUrl } = await Client.call({ action: 'start', path: rel, mime, size: blob.size });
       let r;
       try { r = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: blob }); }
       catch { throw new Error('Upload to Google Drive was interrupted.'); }
       if (!r.ok) throw new Error('Google Drive did not accept ' + rel.split('/').pop() + ' (' + r.status + ').');
     }
-
     async function sync(all, force) {
-      const st = await refresh();
-      if (!st.connected) throw new Error(st.error || 'Google Drive is not connected yet.');
       const man = force ? {} : ((await kvGet('driveManifest')) || {}); // rel -> hash
       const next = {};
       let changed = 0, removed = 0, errors = 0, completed = false;
@@ -417,28 +457,27 @@
           if (man[f.rel] === h) { next[f.rel] = h; continue; }
           status = { ...status, message: `Uploading to Google Drive… ${done}/${all.files.length}` }; notify();
           try { await upload(f.rel, await all.getPdf(f), 'application/pdf'); next[f.rel] = h; changed += 1; }
-          catch (e) { if (e.code === 'PIN' || e.status === 401) throw e; errors += 1; console.error('Drive upload failed', f.rel, e); }
+          catch (e) { if (e.code || e.status === 409) throw e; errors += 1; console.error('Drive upload failed', f.rel, e); }
         }
         const wanted = new Set(all.files.map((f) => f.rel).concat([bRel]));
         for (const rel of Object.keys(man)) {
           if (wanted.has(rel)) continue;
-          try { await call({ action: 'trash', path: rel }); removed += 1; } catch { /* ignore */ }
+          try { await Client.call({ action: 'trash', path: rel }); removed += 1; } catch { /* ignore */ }
         }
         completed = true;
       } finally {
         await kvSet('driveManifest', completed ? next : { ...man, ...next });
       }
-      await kvSet('driveStatus', { ...((await kvGet('driveStatus')) || {}), lastSync: new Date().toISOString() });
+      await Client.note('lastSync');
       return { changed, removed, errors };
     }
     async function backupOnly() {
-      if (!navigator.onLine || !(await isConnected()) || !(await kvGet('scanPin'))) return false;
+      if (!navigator.onLine || !(await isConnected()) || (await Client.isFrozen())) return false;
       await upload(`${BACKUP_DIR}/${BACKUP_FILE}`, new Blob([JSON.stringify(state)], { type: 'application/json' }), 'application/json');
-      await kvSet('driveStatus', { ...((await kvGet('driveStatus')) || {}), lastBackup: new Date().toISOString() });
+      await Client.note('lastBackup');
       return true;
     }
-    async function info() { const c = (await kvGet('driveStatus')) || {}; return { connected: !!c.connected, email: c.email || '', folderName: c.folderName || '', lastSync: c.lastSync || null, lastBackup: c.lastBackup || null, error: c.error || '', hasPin: !!(await kvGet('scanPin')) }; }
-    return { isConnected, refresh, sync, backupOnly, info };
+    return { isConnected, sync, backupOnly };
   })();
 
   // ---------------- backup file download / restore ----------------
@@ -472,7 +511,7 @@
   window.padma = {
     version: APP_VERSION,
     auth,
-    load: async (token) => { await ready; guard(token); if (navigator.onLine) kvGet('scanPin').then((p) => p && GDrive.refresh()).catch(() => {}); return { state, folder: ((await getFolder()) || {}).name || '', dbFile: 'Browser storage on this computer', status: getStatus() }; },
+    load: async (token) => { await ready; guard(token); Client.ping().catch(() => {}); return { state, folder: ((await getFolder()) || {}).name || '', dbFile: 'Browser storage on this computer', status: getStatus() }; },
     save: async (token, next) => { guard(token); await storeState(next); return getStatus(); },
     openFolder: async (token) => { guard(token); return chooseFolder(); },
     isOnline: async () => navigator.onLine,
@@ -507,34 +546,25 @@
     // Reads a photo of an old paper application form (needs internet). The photo is shrunk first, sent to this
     // app's own server (api/scan on Vercel) which asks Google Gemini, and is not stored anywhere.
     scan: {
-      hasPin: async (token) => { guard(token); return !!(await kvGet('scanPin')); },
-      setPin: async (token, pin) => { guard(token); if (pin) await kvSet('scanPin', String(pin)); else await kvDel('scanPin'); return true; },
       read: async (token, file) => {
         guard(token);
         if (!navigator.onLine) throw new Error('Scanning needs internet. Connect and try again.');
-        const pin = await kvGet('scanPin');
-        if (!pin) { const e = new Error('PIN needed'); e.code = 'PIN'; throw e; }
         const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('This file is not a photo the app can open (use JPG or PNG).')); i.src = URL.createObjectURL(file); });
         const k = Math.min(1, 2000 / Math.max(img.width, img.height));
         const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(img.src);
         const dataUrl = c.toDataURL('image/jpeg', 0.85);
-        let r;
-        try {
-          r = await fetch('api/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, mime: 'image/jpeg', image: dataUrl.split(',')[1] }) });
-        } catch { throw new Error('Could not reach the scanner (check the internet connection).'); }
-        const out = await r.json().catch(() => ({}));
-        if (r.status === 401) { await kvDel('scanPin'); const e = new Error(out.error || 'Wrong scan PIN.'); e.code = 'PIN'; throw e; }
-        if (!r.ok) throw new Error(out.error || 'The scanner did not answer (' + r.status + ').');
+        const out = await Client.call({ mime: 'image/jpeg', image: dataUrl.split(',')[1] }, { url: 'api/scan' });
         return { fields: out.fields || {}, image: dataUrl };
       },
     },
-    gdrive: {
-      info: async (token) => { guard(token); return GDrive.info(); },
-      // asks the server whether the owner's Drive is connected (needs internet + PIN)
-      check: async (token) => { guard(token); await GDrive.refresh(); return GDrive.info(); },
-      prepare: async () => true,
+    client: {
+      info: async (token) => { guard(token); return Client.info(); },
+      ping: async () => Client.ping(),
+      activate: async (token, code) => { guard(token); return Client.activate(code); },
+      isFrozen: () => Client.isFrozen(),
+      onFrozen: (cb) => Client.onFrozen(cb),
     },
     backup: {
       download: async (token) => { guard(token); downloadBackup(); return true; },

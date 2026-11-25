@@ -318,13 +318,6 @@ function resetScan() {
   document.querySelectorAll('#tab-admission .scan-filled, #tab-admission .scan-check').forEach((e) => e.classList.remove('scan-filled', 'scan-check'));
   const st = $('scanStatus'), im = $('scanImg'); if (st) { st.classList.add('hidden'); st.innerHTML = ''; } if (im) { im.classList.add('hidden'); im.removeAttribute('src'); }
 }
-function askScanPin(msg) {
-  return new Promise((resolve) => {
-    modal({ title: 'Scanner PIN', body: `<div class="text-sm text-slate-600 mb-3">${esc(msg)}</div>` + field('PIN', inp('pin', '', 'type="password" autocomplete="off"')), ok: 'Save PIN',
-      onOk: async (v) => { if (!v.pin.trim()) return 'Enter the PIN.'; await P.scan.setPin(token, v.pin.trim()); resolve(true); },
-      onCancel: () => resolve(false) });
-  });
-}
 // "02/01/2004", "2004-01-02", "2080/05/12" … → B.S. "YYYY-MM-DD" (converting from A.D. when needed)
 function writtenToBs(raw, cal) {
   const n = String(raw || '').match(/\d+/g); if (!n || n.length < 3) return null;
@@ -404,15 +397,7 @@ async function scanForm(file) {
   st.classList.remove('hidden'); st.className = 'text-xs mt-3 text-slate-600'; st.textContent = 'Reading the form… (5–20 seconds)';
   btn.disabled = true;
   try {
-    let out;
-    for (let tries = 0; tries < 3; tries++) {
-      try { out = await P.scan.read(token, file); break; } catch (e) {
-        if (e.code !== 'PIN') throw e;
-        const ok = await askScanPin(tries ? 'That PIN was not accepted. Enter the scanner PIN again.' : 'Enter the scanner PIN (the SCAN_PIN you set in Vercel). The app remembers it on this computer.');
-        if (!ok) throw new Error('Scanning cancelled.');
-      }
-    }
-    if (!out) throw new Error('Scanning cancelled.');
+    const out = await P.scan.read(token, file);
     clearAdmission();
     scanState = { at: new Date().toISOString() };
     const im = $('scanImg'); im.src = out.image; im.classList.remove('hidden');
@@ -582,8 +567,8 @@ function renderSettings() {
   <div class="card p-5"><div class="font-bold mb-3">Saving, folder &amp; backup</div><div class="text-sm space-y-1"><div>Data is stored inside the app on this computer the moment you type it — closing the app loses nothing.</div><div>Press <b>💾 Save</b> to write the PDF reports and a data backup into your save folder. Choose a folder inside <b>Google Drive</b> (Google Drive for Desktop) and Google uploads everything automatically. Last saved: <b>${esc(last)}</b>${STATUS.dirty ? ' · <span class="text-amber-600">unsaved changes</span>' : ''}</div></div>
     <div class="text-xs mono text-slate-600 mt-3 break-all" id="driveInfo">Save folder: checking…</div>
     <div class="flex flex-wrap gap-2 mt-3"><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="open-folder">📂 Choose save folder</button><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="regen">Rebuild all PDFs</button></div>
-    <div class="font-bold mt-5 mb-2">Google Drive</div>
-    <div class="text-xs text-slate-500">Every 💾 Save uploads the data backup and all PDF reports to the <b>owner's</b> Google Drive — from any computer, without signing in to Google here. The data backup is also uploaded automatically about 20 seconds after each change. Needs internet and the app PIN.</div>
+    <div class="font-bold mt-5 mb-2">This computer &amp; Google Drive backup</div>
+    <div class="text-xs text-slate-500">Activate this computer once with the code from the admin. After that every 💾 Save also uploads the data backup and PDF reports to the hostel's Google Drive folder, the form scanner works, and the data backup is uploaded automatically about 20 seconds after each change (needs internet).</div>
     <div class="text-xs mono text-slate-600 mt-2 break-all" id="gdInfo">Google Drive: checking…</div>
     <div class="flex flex-wrap gap-2 mt-3" id="gdBtns"></div>
     <div class="font-bold mt-5 mb-2">Backup file</div>
@@ -594,14 +579,15 @@ function renderSettings() {
   const gdRender = (g) => {
     const e = $('gdInfo'), b = $('gdBtns'); if (!e || !b) return;
     const when = (t) => (t ? new Date(t).toLocaleString() : 'not yet');
-    if (g.connected) e.innerHTML = 'Backups go to: <b>' + esc(g.email || 'owner') + '</b> · folder <b>' + esc(g.folderName) + '</b> · ✔ connected<br>last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '');
-    else if (!g.hasPin) e.innerHTML = '<span class="text-amber-700">Enter the app PIN to use Google Drive backup on this computer.</span>';
-    else e.innerHTML = '<span class="text-amber-700">' + esc(g.error || 'Not connected yet: the owner must connect their Google Drive once.') + '</span>';
-    b.innerHTML = (g.hasPin ? '<button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="gd-check">↻ Check connection</button>' : '<button class="btn text-sm px-3 py-2 rounded-md text-white font-semibold dynamic-bg" data-act="gd-pin">Enter app PIN</button>')
-      + (g.connected ? '' : '<button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="gd-owner">Connect owner\'s Google Drive (owner only)</button>')
-      + (g.hasPin ? '<button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="gd-pin">Change PIN</button>' : '');
+    if (!g.activated) {
+      e.innerHTML = '<span class="text-amber-700">Not activated yet. Enter the activation code you got from the admin.</span>';
+      b.innerHTML = '<input id="actCode" class="field-input mono uppercase" style="max-width:180px" placeholder="ABCD-1234" maxlength="9" autocomplete="off"><button class="btn text-sm px-3 py-2 rounded-md text-white font-semibold dynamic-bg" data-act="cl-activate">Activate this computer</button>';
+      return;
+    }
+    e.innerHTML = 'Activated as: <b>' + esc(g.name) + '</b> ✔<br>' + (g.driveReady ? 'Google Drive backup: <b>ready</b>' + (g.folderName ? ' · folder <b>' + esc(g.folderName) + '</b>' : '') + ' · last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '') : '<span class="text-amber-700">Google Drive backup: waiting for the admin to set it up.</span>');
+    b.innerHTML = '<button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="cl-check">↻ Check now</button><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="cl-recode">Use a new activation code</button>';
   };
-  P.gdrive.info(token).then((g) => { gdRender(g); if (g.hasPin && navigator.onLine) P.gdrive.check(token).then(gdRender).catch((err) => { const e = $('gdInfo'); if (e) e.innerHTML = '<span class="text-rose-600">' + esc(err.message) + '</span>'; }); }).catch(() => {});
+  P.client.info(token).then((g) => { gdRender(g); if (g.activated && navigator.onLine) P.client.ping().then(gdRender).catch(() => {}); }).catch(() => {});
   P.backup.folderInfo(token).then((f) => {
     const e = $('driveInfo'); if (!e) return;
     if (!f.supported) { e.innerHTML = '<span class="text-rose-600">Saving into a folder needs Microsoft Edge or Google Chrome. Use “Download backup file” instead.</span>'; return; }
@@ -647,9 +633,9 @@ document.addEventListener('click', async (e) => {
     else if (a === 'cat-del') { S.categories = S.categories.filter((c) => !(c.type === type && c.name === el.dataset.name)); await persist(); renderSettings(); }
     else if (a === 'set-save') { [1, 2, 3, 4].forEach((n) => { S.settings.bedPrices[n] = num($('bp' + n).value); }); S.settings.admission = { admissionFee: num($('sAdm').value), deposit: num($('sDep').value), formFee: num($('sForm').value) }; await persist(); $('admDeposit').dataset.touched = ''; toast('Settings saved.'); }
     else if (a === 'open-folder') { const name = await P.backup.chooseFolder(token); toast('Save folder set: ' + name + '. Press 💾 Save to write the reports there.'); renderSettings(); }
-    else if (a === 'gd-pin') { if (await askScanPin('Enter the app PIN (the SCAN_PIN set in Vercel). It is used for the form scanner and Google Drive backup, and is remembered on this computer.')) { toast('PIN saved.'); renderSettings(); } }
-    else if (a === 'gd-check') { const g = await P.gdrive.check(token); toast(g.connected ? 'Connected: backups go to ' + (g.email || 'the owner') + '.' : (g.error || 'Not connected yet.'), !g.connected); renderSettings(); }
-    else if (a === 'gd-owner') { window.open('api/drive', '_blank', 'noopener'); }
+    else if (a === 'cl-activate') { const code = ($('actCode') || {}).value || ''; const g = await P.client.activate(token, code); toast('This computer is activated as ' + g.name + '.'); renderSettings(); }
+    else if (a === 'cl-check') { const g = await P.client.ping(); toast(g.activated ? (g.driveReady ? 'Connected. Google Drive backup is ready.' : 'Connected. Google Drive backup is not set up by the admin yet.') : 'Not activated.'); renderSettings(); }
+    else if (a === 'cl-recode') { const ok = await confirmBox('Use a new activation code?', 'Only do this if the admin gave you a new code (for example after moving to a new computer).', 'Enter new code'); if (ok) { const e = $('gdBtns'); if (e) e.innerHTML = '<input id="actCode" class="field-input mono uppercase" style="max-width:180px" placeholder="ABCD-1234" maxlength="9" autocomplete="off"><button class="btn text-sm px-3 py-2 rounded-md text-white font-semibold dynamic-bg" data-act="cl-activate">Activate this computer</button>'; } }
     else if (a === 'bk-download') { await P.backup.download(token); toast('Backup file downloaded.'); }
     else if (a === 'bk-restore') { const fi = $('bkFile'); fi.value = ''; fi.onchange = () => restoreFrom(fi.files[0]); fi.click(); }
     else if (a === 'regen') { toast('Rebuilding all PDFs…'); STATUS = await P.reports.regenerate(token); updateSaveUi(); toast(STATUS.errors ? STATUS.message : 'All PDFs rebuilt.', !!STATUS.errors); }
@@ -690,5 +676,23 @@ $('scanImg').onclick = () => { const z = document.createElement('div'); z.classN
 
 $('loginBtn').onclick = login;
 prepareLogin();
+// ---------- frozen account lock ----------
+function frozenLock(on) {
+  let el = document.getElementById('frozenLock');
+  if (!on) { if (el) el.remove(); return; }
+  if (el) return;
+  el = document.createElement('div'); el.id = 'frozenLock';
+  el.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.92);display:flex;align-items:center;justify-content:center;padding:20px';
+  el.innerHTML = '<div style="background:#fff;border-radius:16px;padding:32px;max-width:440px;text-align:center"><div style="font-size:44px">❄</div><h2 style="font-size:22px;font-weight:700;margin:8px 0">Account frozen</h2><p style="color:#475569">This app has been frozen by the admin. Please contact the admin. Your data is safe on this computer.</p><button id="frozenCheck" class="btn mt-4 text-white px-4 py-2 rounded-md font-semibold dynamic-bg">Check again</button><div id="frozenMsg" style="font-size:12px;color:#64748b;margin-top:10px"></div></div>';
+  document.body.appendChild(el);
+  document.getElementById('frozenCheck').onclick = async () => {
+    const m = document.getElementById('frozenMsg'); m.textContent = navigator.onLine ? 'Checking…' : 'No internet: connect and try again.';
+    if (!navigator.onLine) return;
+    await P.client.ping(); if (await P.client.isFrozen()) m.textContent = 'Still frozen. Please contact the admin.';
+  };
+}
+P.client.onFrozen(frozenLock);
+P.client.isFrozen().then((f) => { frozenLock(f); }).catch(() => {});
+P.client.ping().catch(() => {});
 ['loginUser', 'loginPass', 'loginPass2'].forEach((i) => $(i).addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); }));
 $('loginUser').focus();

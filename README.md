@@ -29,17 +29,16 @@ App address: **https://padma-hostel-finance.vercel.app/**  (hosted free on Verce
    - `C:\Users\<your name>\AppData\Roaming\PADMA HOSTEL FINANCE\padma-data-v3.json` (the old app's live data. Type `%APPDATA%\PADMA HOSTEL FINANCE` in the File Explorer address bar to find it.)
 3. The app shows how many students, fees and entries it found. Press **Replace & restore**.
 
-## 3. Google Drive backup: owner's Drive only (one-time setup)
+## 3. Admin panel (owner only): clients, Drive backup, freeze
 
-All backups from every computer go to **one** Google Drive, the owner's. No Google sign-in happens on the hostel PCs; they only need the app PIN.
+**https://padma-hostel-finance.vercel.app/admin.html**. Only the admin Gmail (`ADMIN_EMAIL`, default arunpoudel9957@gmail.com) can sign in. Signing in also connects the owner's Google Drive for all backups; nothing is copied into Vercel by hand.
 
-**Owner, one time:**
-1. Open **https://padma-hostel-finance.vercel.app/api/drive**, enter the app PIN, and sign in with the **owner's Gmail**. Allow access.
-2. The page shows two values. In Vercel → Settings → Environment Variables, add them as **Secret**: `GOOGLE_REFRESH_TOKEN` and `DRIVE_FOLDER_ID`. Click **Save**, then **Redeploy**.
+- **Add a client** (a hostel or computer). It gets its own folder inside **Padma Hostel Finance** in the owner's Drive, plus an **activation code**.
+- In the hostel app: **Settings → Activate this computer**, then type the code (once).
+- The panel shows each client's online/offline status, last active time, computer and app version, data size, Drive storage used, and backup folder.
+- **Freeze** locks that client's app ("Account frozen – contact admin") until you **Unfreeze**. **New code** moves a client to a new computer (the old one is signed out). **Remove** deletes the client.
 
-**On each computer:** Settings → Google Drive → **Enter app PIN**. After that, **💾 Save** uploads the data backup and PDF reports to the owner's **Padma Hostel Finance** folder, and the data backup also goes up automatically about 20 seconds after each change.
-
-Server settings in Vercel: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (the "Padma Hostel Finance (web app)" OAuth client, redirect URI `/api/drive-callback`), `GOOGLE_REFRESH_TOKEN`, `DRIVE_FOLDER_ID`, `SCAN_PIN`. The Google consent screen must be **In production**, otherwise Google cancels the permission after 7 days.
+Server settings in Vercel: an **Upstash Redis** database connected to the project (adds `KV_REST_API_URL` and `KV_REST_API_TOKEN`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (OAuth client "Padma Hostel Finance (web app)", redirect URI `/api/drive-callback`), and `GEMINI_API_KEY`. The Google consent screen must be **In production**.
 
 ## 3b. (Optional) Also save into a folder on this PC
 
@@ -64,8 +63,6 @@ After the browser restarts it may ask once more for permission the next time you
 
 The **📷 Scan old paper form** button on the Admissions page reads a photo of an old application form with Google Gemini (free tier) and fills in the admission page. It needs internet. In Vercel, go to **Project → Settings → Environment Variables** and add:
 - `GEMINI_API_KEY`: create one at aistudio.google.com/apikey
-- `SCAN_PIN`: a PIN you choose; the app asks for it once on each computer
-
 Then **redeploy** (Deployments → ⋯ → Redeploy). Note that Google's free tier may use the photos you send to improve its products.
 
 When you scan, yellow boxes were read from the form and orange boxes should be checked. "Payment received" is unticked, so old joining fees aren't added to today's income, and monthly fees are tracked from the current month.
@@ -98,11 +95,12 @@ Everything works like the old app: Dashboard, Rooms, Admissions, Students, Month
 | `js/padma-web.js` | Storage on the computer, login, PDF making, saving to the folder and to Google Drive |
 | `js/bs-data.js` | Nepali calendar (B.S.) month lengths, 2000–2090 |
 | `api/scan.js` | Server part of the form scanner (runs on Vercel; holds the Gemini key) |
-| `api/drive.js`, `api/drive-callback.js`, `api/_google.js` | Server part of the Drive backup (owner's Drive only) |
+| `admin.html`, `js/admin.js` | Admin panel (owner only) |
+| `api/admin.js`, `api/client.js`, `api/drive-callback.js`, `api/_lib.js` | Server: admin panel, client activation, online signal, freeze, Drive uploads |
 | `tools/` | `python3 tools/build-core.py` rebuilds `js/core.js` from `tools/core-src/` |
 | `sw.js`, `js/pwa.js`, `manifest.webmanifest` | Offline support, install and automatic updates |
 | `vendor/` | html2canvas and jsPDF (MIT licence), used to make the PDF files |
 
 ## Secrets
 
-The Google client secret, the refresh token, the Gemini key and the PIN live only in Vercel's Environment Variables. **Never put them in this repository.**
+The Google client secret, the Gemini key and the database keys live only in Vercel's Environment Variables, and the owner's Google permission lives only in the database. **Never put them in this repository.**
