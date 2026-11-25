@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '3.1.0';
+  const APP_VERSION = '3.2.0';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -610,6 +610,32 @@
       status: async (token) => { guard(token); const f = await folderInfo(); return { configured: !!f.name, connected: f.permission === 'granted', lastSync: lastSaveAt, ...f }; },
       upload: async (token) => { guard(token); downloadBackup(); return { count: 1, skipped: 0 }; },
     },
+    // Reads a photo of an old paper application form (needs internet). The photo is shrunk first, sent to this
+    // app's own server (api/scan on Vercel) which asks Google Gemini, and is not stored anywhere.
+    scan: {
+      hasPin: async (token) => { guard(token); return !!(await kvGet('scanPin')); },
+      setPin: async (token, pin) => { guard(token); if (pin) await kvSet('scanPin', String(pin)); else await kvDel('scanPin'); return true; },
+      read: async (token, file) => {
+        guard(token);
+        if (!navigator.onLine) throw new Error('Scanning needs internet. Connect and try again.');
+        const pin = await kvGet('scanPin');
+        if (!pin) { const e = new Error('PIN needed'); e.code = 'PIN'; throw e; }
+        const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('This file is not a photo the app can open (use JPG or PNG).')); i.src = URL.createObjectURL(file); });
+        const k = Math.min(1, 2000 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(img.src);
+        const dataUrl = c.toDataURL('image/jpeg', 0.85);
+        let r;
+        try {
+          r = await fetch('api/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, mime: 'image/jpeg', image: dataUrl.split(',')[1] }) });
+        } catch { throw new Error('Could not reach the scanner (check the internet connection).'); }
+        const out = await r.json().catch(() => ({}));
+        if (r.status === 401) { await kvDel('scanPin'); const e = new Error(out.error || 'Wrong scan PIN.'); e.code = 'PIN'; throw e; }
+        if (!r.ok) throw new Error(out.error || 'The scanner did not answer (' + r.status + ').');
+        return { fields: out.fields || {}, image: dataUrl };
+      },
+    },
     gdrive: {
       info: async (token) => { guard(token); return GDrive.info(); },
       connect: async (token) => { guard(token); return GDrive.connect(); },
@@ -644,6 +670,7 @@
       MONTHS: dates.MONTHS, MONTHS_NP: dates.MONTHS_NP, WEEKDAYS: dates.WEEKDAYS, WEEKDAYS_NP: dates.WEEKDAYS_NP,
       MIN_YEAR: dates.MIN_YEAR, MAX_YEAR: dates.MAX_YEAR,
       today: dates.today,
+      adToBs: dates.adToBs,
       daysInMonth: dates.daysInBsMonth,
       bsToAdString: dates.bsStringToAdString,
       formatLong: dates.formatBsLong,

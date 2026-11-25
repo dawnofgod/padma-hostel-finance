@@ -124,6 +124,10 @@
           <div class="flex gap-4 mb-4 items-start">
             <div class="grid grid-cols-1 gap-4 flex-1">
               <div><label class="field-label">FULL NAME (CAPITAL)</label><input id="admName" class="field-input uppercase" placeholder="RAMESH KUMAR" /></div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="field-label">NAME IN NEPALI (नेपालीमा)</label><input id="admNameNp" class="field-input" placeholder="रमेश कुमार" /></div>
+                <div><label class="field-label">FORM NO.</label><input id="admFormNo" class="field-input" placeholder="40642" /></div>
+              </div>
             </div>
             <div class="photo-box" id="photoBox">
               <input type="file" id="admPhotoInput" accept="image/*" class="hidden" />
@@ -193,6 +197,12 @@
             <div><label class="field-label">EMERGENCY PHONE</label><input id="admEmergencyPhone" class="field-input" placeholder="9800000000" /></div>
             <div><label class="field-label">OCCUPATION</label><input id="admOccupation" class="field-input" placeholder="Occupation" /></div>
           </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div><label class="field-label">FATHER'S PHONE</label><input id="admFatherPhone" class="field-input" placeholder="98XXXXXXXX" /></div>
+            <div><label class="field-label">FATHER'S OCCUPATION</label><input id="admFatherOccupation" class="field-input" placeholder="Business" /></div>
+            <div><label class="field-label">MOTHER'S PHONE</label><input id="admMotherPhone" class="field-input" placeholder="98XXXXXXXX" /></div>
+            <div><label class="field-label">MOTHER'S OCCUPATION</label><input id="admMotherOccupation" class="field-input" placeholder="Housewife" /></div>
+          </div>
           <div class="mb-6"><label class="field-label">ADDRESS</label><input id="admGuardianAddress" class="field-input" placeholder="Full guardian address" /></div>
 
           <div class="text-xs font-bold mono text-slate-400 uppercase tracking-wider mb-3 border-b pb-1">Official Hostel Section</div>
@@ -219,6 +229,7 @@
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div><label class="field-label">APPROVED BY</label><input id="admApprovedBy" class="field-input" placeholder="Warden / Admin name" /></div>
+            <div><label class="field-label">STAY DURATION</label><input id="admStay" class="field-input" placeholder="1 Year" /></div>
           </div>
 
           <div class="mt-6 flex gap-2">
@@ -227,7 +238,16 @@
           </div>
         </div>
 
-        <div class="card p-6 self-start" style="background:#0b1220; color:white; border-color:#0b1220;">
+        <div class="self-start space-y-6">
+        <div class="card p-5" id="scanCard">
+          <div class="font-bold">📷 Scan old paper form</div>
+          <div class="text-xs text-slate-500 mt-1">For students who lived here before this app. Take a clear photo of their application form; the app reads it and fills this page. Needs internet.</div>
+          <input type="file" id="scanInput" accept="image/*" class="hidden" />
+          <button id="scanBtn" class="btn w-full mt-3 text-white px-4 py-2.5 rounded-md font-semibold dynamic-bg">📷 Choose / take photo of form</button>
+          <div id="scanStatus" class="text-xs mt-3 hidden"></div>
+          <img id="scanImg" class="hidden mt-3 w-full rounded-md border border-slate-200 cursor-zoom-in" alt="Scanned form" title="Click to enlarge" />
+        </div>
+        <div class="card p-6" style="background:#0b1220; color:white; border-color:#0b1220;">
           <div class="text-xs mono text-slate-400">JOINING BILL SUMMARY</div>
           <div class="mt-3 space-y-2 text-sm">
             <div class="flex justify-between"><span class="text-slate-400">Admission Fee</span><span id="calcAdm" class="mono">Rs. 5,000</span></div>
@@ -243,6 +263,7 @@
             <input id="admPaid" type="checkbox" checked class="mt-0.5" />
             <span>Payment received – add these amounts to the Income ledger and the first month's fee.</span>
           </label>
+        </div>
         </div>
       </div>
     </section>

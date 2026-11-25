@@ -32,12 +32,12 @@ function toast(msg, bad) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.add('hidden'), 4500);
 }
-function modal({ title, body, ok = 'Save', cancel = 'Cancel', onOk, wide }) {
+function modal({ title, body, ok = 'Save', cancel = 'Cancel', onOk, wide, onCancel }) {
   const root = $('modalRoot');
   root.innerHTML = `<div class="modal-back"><div class="modal" ${wide ? 'style="max-width:680px"' : ''}><h3>${esc(title)}</h3><div id="mBody">${body}</div><div id="mErr" class="text-xs text-rose-600 mt-2 hidden"></div><div class="flex justify-end gap-2 mt-5">${cancel ? '<button class="btn px-4 py-2 rounded-md border border-slate-300 bg-white text-sm" id="mCancel">' + esc(cancel) + '</button>' : ''}<button class="btn px-4 py-2 rounded-md text-white text-sm font-semibold dynamic-bg" id="mOk">${esc(ok)}</button></div></div></div>`;
   const close = () => { root.innerHTML = ''; };
   const first = root.querySelector('input,select'); if (first) first.focus();
-  if ($('mCancel')) $('mCancel').onclick = close;
+  if ($('mCancel')) $('mCancel').onclick = () => { close(); if (onCancel) onCancel(); };
   $('mOk').onclick = async () => {
     const vals = {};
     root.querySelectorAll('[name]').forEach((el) => { vals[el.name] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -303,7 +303,7 @@ function calcBill() {
 }
 function clearAdmission() {
   document.querySelectorAll('#tab-admission input[type=text], #tab-admission input:not([type]), #tab-admission input[type=number]').forEach((i) => { if (!['admMonthlyRent', 'admDeposit'].includes(i.id)) i.value = ''; });
-  $('admBloodGroup').value = ''; photoData = ''; $('photoPreview').classList.add('hidden'); $('photoPlaceholder').classList.remove('hidden');
+  $('admBloodGroup').value = ''; photoData = ''; resetScan(); $('photoPreview').classList.add('hidden'); $('photoPlaceholder').classList.remove('hidden');
   const t = nowBs().bs.str; pickers.admBookingPicker.set(t); pickers.admAdmissionPicker.set(t); $('admDeposit').dataset.touched = ''; $('admPaid').checked = true;
   $('admBookingAD').textContent = adOf(t); $('admAdmissionAD').textContent = adOf(t); fillRoomSelect();
 }
@@ -311,6 +311,129 @@ function readPhoto(file) {
   if (!file) return; const fr = new FileReader();
   fr.onload = () => { const img = new Image(); img.onload = () => { const s = Math.min(1, 420 / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); photoData = c.toDataURL('image/jpeg', 0.82); $('photoPreview').src = photoData; $('photoPreview').classList.remove('hidden'); $('photoPlaceholder').classList.add('hidden'); }; img.src = fr.result; };
   fr.readAsDataURL(file);
+}
+// ---------- SCAN OLD PAPER FORM ----------
+let scanState = null;
+function resetScan() {
+  scanState = null;
+  document.querySelectorAll('#tab-admission .scan-filled, #tab-admission .scan-check').forEach((e) => e.classList.remove('scan-filled', 'scan-check'));
+  const st = $('scanStatus'), im = $('scanImg'); if (st) { st.classList.add('hidden'); st.innerHTML = ''; } if (im) { im.classList.add('hidden'); im.removeAttribute('src'); }
+}
+function askScanPin(msg) {
+  return new Promise((resolve) => {
+    modal({ title: 'Scanner PIN', body: `<div class="text-sm text-slate-600 mb-3">${esc(msg)}</div>` + field('PIN', inp('pin', '', 'type="password" autocomplete="off"')), ok: 'Save PIN',
+      onOk: async (v) => { if (!v.pin.trim()) return 'Enter the PIN.'; await P.scan.setPin(token, v.pin.trim()); resolve(true); },
+      onCancel: () => resolve(false) });
+  });
+}
+// "02/01/2004", "2004-01-02", "2080/05/12" … → B.S. "YYYY-MM-DD" (converting from A.D. when needed)
+function writtenToBs(raw, cal) {
+  const n = String(raw || '').match(/\d+/g); if (!n || n.length < 3) return null;
+  let y, m, d, guess = false;
+  if (n[0].length === 4) { y = +n[0]; m = +n[1]; d = +n[2]; } else if (n[2].length === 4) { y = +n[2]; m = +n[1]; d = +n[0]; guess = true; } else return null;
+  if (m > 12 && d <= 12) { [m, d] = [d, m]; }
+  if (!(m >= 1 && m <= 12 && d >= 1 && d <= 32)) return null;
+  const isBs = y >= 2060 || (y >= 2040 && cal === 'BS');
+  try {
+    if (isBs) return { bs: `${y}-${pad(m)}-${pad(Math.min(d, D.daysInMonth(y, m)))}`, guess, from: 'B.S.' };
+    const b = D.adToBs(y, m, d); return { bs: `${b.year}-${pad(b.month)}-${pad(b.day)}`, guess, from: `A.D. ${d}/${m}/${y}` };
+  } catch { return null; }
+}
+function fillFromScan(f) {
+  const unsure = new Set((f.unsure || []).map(String));
+  const filled = [], check = [];
+  const put = (id, val, key) => {
+    const v = String(val || '').trim(); if (!v) return;
+    const el = $(id); if (!el) return;
+    el.value = v; el.classList.add(unsure.has(key) ? 'scan-check' : 'scan-filled'); (unsure.has(key) ? check : filled).push(key);
+  };
+  // names written one letter per box: "A R U N  P O U D E L" → "ARUN POUDEL" (a wider gap = new word)
+  let nm = String(f.name || '').toUpperCase().trim();
+  if (nm && nm.split(/\s+/).every((w) => w.length === 1)) {
+    const words = nm.split(/\s{2,}/).map((w) => w.replace(/\s+/g, ''));
+    if (words.length === 1) unsure.add('name');
+    nm = words.join(' ');
+  }
+  put('admName', nm.replace(/\s+/g, ' '), 'name');
+  put('admNameNp', f.nameNepali, 'nameNepali'); put('admFormNo', f.formNo, 'formNo');
+  put('admWhatsapp', f.phone, 'phone'); put('admEmail', f.email, 'email');
+  put('admDistrict', f.district, 'district'); put('admMunicipality', f.municipality, 'municipality'); put('admWard', f.ward, 'ward'); put('admStreet', f.street, 'street');
+  put('admCitizenship', f.citizenship, 'citizenship'); put('admInstitute', f.institute, 'institute'); put('admShift', f.classTime, 'classTime'); put('admLevel', f.level, 'level');
+  put('admHealth', /^(none|no|nil|n\/a)$/i.test(String(f.health || '').trim()) ? 'None' : f.health, 'health'); put('admStay', f.stayDuration, 'stayDuration');
+  put('admFather', f.fatherName, 'fatherName'); put('admFatherPhone', f.fatherPhone, 'fatherPhone'); put('admFatherOccupation', f.fatherOccupation, 'fatherOccupation');
+  put('admMother', f.motherName, 'motherName'); put('admMotherPhone', f.motherPhone, 'motherPhone'); put('admMotherOccupation', f.motherOccupation, 'motherOccupation');
+  put('admGuardian', f.guardianName || f.spouseName, 'guardianName'); put('admRelation', f.relation, 'relation');
+  put('admEmergencyPhone', f.guardianPhone || f.fatherPhone, 'guardianPhone'); put('admOccupation', f.guardianOccupation, 'guardianOccupation'); put('admGuardianAddress', f.guardianAddress, 'guardianAddress');
+  put('admApprovedBy', f.approvedBy, 'approvedBy');
+  const bg = String(f.bloodGroup || '').toUpperCase().replace(/\s/g, '').replace('VE', '').replace('POSITIVE', '+').replace('NEGATIVE', '-');
+  if ([...$('admBloodGroup').options].some((o) => o.value === bg)) { $('admBloodGroup').value = bg; $('admBloodGroup').classList.add(unsure.has('bloodGroup') ? 'scan-check' : 'scan-filled'); }
+  const food = { vegetarian: 'Vegetarian', 'only egg': 'Only Egg', 'non-vegetarian': 'Non-Vegetarian', 'non vegetarian': 'Non-Vegetarian' }[String(f.food || '').toLowerCase().trim()];
+  if (food) { const r = document.querySelector(`input[name=admFood][value="${food}"]`); if (r) r.checked = true; }
+  // dates
+  const notes = [];
+  const setDate = (pickerId, adSpan, raw, label) => {
+    const r = writtenToBs(raw, f.dateCalendar); if (!r) return false;
+    pickers[pickerId].set(r.bs); const box = $(pickerId); box.classList.add('scan-check');
+    if (adSpan) $(adSpan).textContent = adOf(r.bs);
+    notes.push(`${label}: written as “${esc(raw)}” → ${esc(D.formatLong(r.bs))} B.S.${r.guess ? ' (day/month order guessed — please check)' : ''}`);
+    return true;
+  };
+  setDate('admDobPicker', null, f.dob, 'Date of birth');
+  if (!setDate('admBookingPicker', 'admBookingAD', f.bookingDate, 'Booking date')) setDate('admBookingPicker', 'admBookingAD', f.applicationDate, 'Booking date (from form date)');
+  if (!setDate('admAdmissionPicker', 'admAdmissionAD', f.admissionDate, 'Admission date')) setDate('admAdmissionPicker', 'admAdmissionAD', f.applicationDate, 'Admission date (from form date)');
+  // room from the official box, if written and free
+  const rn = String(f.roomNo || '').replace(/[^0-9A-Za-z-]/g, '');
+  if (rn) {
+    const room = B().rooms.find((r) => String(r.number).toLowerCase() === rn.toLowerCase());
+    if (room && room.beds.some((x) => !x.name)) { $('admRoom').value = room.id; onRoomChange(); $('admRoom').classList.add('scan-check'); notes.push(`Room ${esc(rn)} selected from the form — choose the bed.`); }
+    else notes.push(`The form says room <b>${esc(rn)}</b>, but ${room ? 'it has no free bed' : 'that room is not in this branch'} — choose the room yourself.`);
+  }
+  const fee = Number(String(f.monthlyFee || '').replace(/[^0-9.]/g, ''));
+  if (fee > 0) { $('admMonthlyRent').value = fee; $('admMonthlyRent').classList.add('scan-check'); calcBill(); }
+  // hostel on the form vs. branch selected now
+  const hn = String(f.hostelName || '').toUpperCase();
+  const wantGirls = /GIRL/.test(hn), wantBoys = /BOY/.test(hn);
+  const isGirls = /GIRL/i.test(BR[branch].name);
+  const branchWarn = (wantGirls && !isGirls) || (wantBoys && isGirls) ? `<div class="mt-2 p-2 rounded bg-rose-50 text-rose-700"><b>Careful:</b> this form is for <b>${esc(f.hostelName)}</b>, but <b>${esc(BR[branch].name)}</b> is selected at the top. Switch branch before saving.</div>` : '';
+  // old students already paid their joining bill long ago → don't add it to today's income
+  $('admPaid').checked = false; calcBill();
+  return { filled: filled.length, check, notes, branchWarn };
+}
+async function scanForm(file) {
+  if (!file) return;
+  const st = $('scanStatus'), btn = $('scanBtn');
+  st.classList.remove('hidden'); st.className = 'text-xs mt-3 text-slate-600'; st.textContent = 'Reading the form… (5–20 seconds)';
+  btn.disabled = true;
+  try {
+    let out;
+    for (let tries = 0; tries < 3; tries++) {
+      try { out = await P.scan.read(token, file); break; } catch (e) {
+        if (e.code !== 'PIN') throw e;
+        const ok = await askScanPin(tries ? 'That PIN was not accepted. Enter the scanner PIN again.' : 'Enter the scanner PIN (the SCAN_PIN you set in Vercel). The app remembers it on this computer.');
+        if (!ok) throw new Error('Scanning cancelled.');
+      }
+    }
+    if (!out) throw new Error('Scanning cancelled.');
+    clearAdmission();
+    scanState = { at: new Date().toISOString() };
+    const im = $('scanImg'); im.src = out.image; im.classList.remove('hidden');
+    const r = fillFromScan(out.fields);
+    st.className = 'text-xs mt-3 text-slate-700';
+    st.innerHTML = `<div class="p-2 rounded bg-emerald-50 text-emerald-800"><b>✔ Filled ${r.filled + r.check.length} boxes.</b> Compare with the photo below, then choose the room and bed and press 💾 Save Admission.</div>`
+      + `<div class="mt-2"><span class="px-1 rounded" style="background:#fefce8">yellow</span> = read from the form · <span class="px-1 rounded" style="background:#fff7ed;outline:2px solid #f59e0b">orange</span> = hard to read or a date — please check.</div>`
+      + (r.notes.length ? '<ul class="mt-2 list-disc pl-4 space-y-1">' + r.notes.map((n) => `<li>${n}</li>`).join('') + '</ul>' : '')
+      + '<div class="mt-2 p-2 rounded bg-amber-50 text-amber-800">“Payment received” has been <b>unticked</b>: an old student paid the joining bill long ago, so it should not be added to today\'s income. Tick it only if they are paying now. Monthly fees will be tracked from this month.</div>'
+      + r.branchWarn;
+    toast('Form read. Please check the highlighted boxes.');
+  } catch (e) {
+    st.className = 'text-xs mt-3 p-2 rounded bg-rose-50 text-rose-700'; st.textContent = e.message || String(e);
+  } finally { btn.disabled = false; }
+}
+// Old students entered from a scanned form (joining bill not paid now): monthly fees are tracked from the
+// current month, so months before this app was used don't show up as unpaid.
+function feeSince(adm) {
+  const a = ym(adm), now = ym(nowBs().bs.str);
+  return scanState && !$('admPaid').checked && a < now ? now : a;
 }
 async function saveAdmission() {
   const name = $('admName').value.trim().toUpperCase(); const room = findRoom($('admRoom').value); const bedIdx = $('admBed').value;
@@ -321,9 +444,9 @@ async function saveAdmission() {
   const fees = { admissionFee: num(S.settings.admission.admissionFee), formFee: num(S.settings.admission.formFee), deposit: num($('admDeposit').value), bedFee: num($('admMonthlyRent').value) };
   const food = (document.querySelector('input[name=admFood]:checked') || {}).value || '';
   const g = (x) => $(x).value.trim();
-  const rec = { id, studentId: stuId, roomId: room.id, bedIndex: +bedIdx, name, dob: pickers.admDobPicker.get(), whatsapp: g('admWhatsapp'), email: g('admEmail'), bloodGroup: $('admBloodGroup').value, district: g('admDistrict'), municipality: g('admMunicipality'), ward: g('admWard'), street: g('admStreet'), citizenship: g('admCitizenship'), institute: g('admInstitute'), shift: g('admShift'), level: g('admLevel'), foodPreference: food, health: g('admHealth'), fatherName: g('admFather'), motherName: g('admMother'), guardianName: g('admGuardian'), relation: g('admRelation'), emergencyPhone: g('admEmergencyPhone'), occupation: g('admOccupation'), guardianAddress: g('admGuardianAddress'), bookingDate: pickers.admBookingPicker.get(), admissionDate: adm, admissionDateBS: adm, roomLabel: room.label, roomNo: 'Bed ' + (+bedIdx + 1), approvedBy: g('admApprovedBy'), photo: photoData, paid: $('admPaid').checked, createdAt: new Date().toISOString(), ...fees };
+  const rec = { id, studentId: stuId, roomId: room.id, bedIndex: +bedIdx, name, dob: pickers.admDobPicker.get(), whatsapp: g('admWhatsapp'), email: g('admEmail'), bloodGroup: $('admBloodGroup').value, district: g('admDistrict'), municipality: g('admMunicipality'), ward: g('admWard'), street: g('admStreet'), citizenship: g('admCitizenship'), institute: g('admInstitute'), shift: g('admShift'), level: g('admLevel'), foodPreference: food, health: g('admHealth'), fatherName: g('admFather'), motherName: g('admMother'), guardianName: g('admGuardian'), relation: g('admRelation'), emergencyPhone: g('admEmergencyPhone'), occupation: g('admOccupation'), guardianAddress: g('admGuardianAddress'), nameNepali: g('admNameNp'), formNo: g('admFormNo'), fatherPhone: g('admFatherPhone'), fatherOccupation: g('admFatherOccupation'), motherPhone: g('admMotherPhone'), motherOccupation: g('admMotherOccupation'), stayDuration: g('admStay'), scanned: !!scanState, bookingDate: pickers.admBookingPicker.get(), admissionDate: adm, admissionDateBS: adm, roomLabel: room.label, roomNo: 'Bed ' + (+bedIdx + 1), approvedBy: g('admApprovedBy'), photo: photoData, paid: $('admPaid').checked, createdAt: new Date().toISOString(), ...fees };
   b.records.push(rec);
-  b.students.push({ id: stuId, name, phone: rec.whatsapp, room: room.number, bed: P.logic.bedTypeOf(room.beds.length), fee: fees.bedFee, active: '1', since: ym(adm), until: '', recordId: id, roomId: room.id });
+  b.students.push({ id: stuId, name, phone: rec.whatsapp, room: room.number, bed: P.logic.bedTypeOf(room.beds.length), fee: fees.bedFee, active: '1', since: feeSince(adm), until: '', recordId: id, roomId: room.id });
   room.beds[+bedIdx] = { studentId: stuId, name, phone: rec.whatsapp };
   if ($('admPaid').checked) {
     const ref = 'adm:' + id; const ad = adOf(adm);
@@ -553,6 +676,9 @@ function initApp() {
   $('admRoom').onchange = onRoomChange; $('admMonthlyRent').oninput = calcBill; $('admDeposit').oninput = () => { $('admDeposit').dataset.touched = '1'; calcBill(); };
   $('photoBox').onclick = () => $('admPhotoInput').click(); $('admPhotoInput').onchange = (e) => readPhoto(e.target.files[0]);
   $('admClearBtn').onclick = clearAdmission; $('admSaveBtn').onclick = saveAdmission;
+$('scanBtn').onclick = () => { const fi = $('scanInput'); fi.value = ''; fi.click(); };
+$('scanInput').onchange = () => scanForm($('scanInput').files[0]);
+$('scanImg').onclick = () => { const z = document.createElement('div'); z.className = 'scan-zoom'; z.innerHTML = `<img src="${$('scanImg').src}" alt="">`; z.onclick = () => z.remove(); document.body.appendChild(z); };
   $('admDonePdf').onclick = () => lastAdm && P.openAdmission(token, branch, lastAdm).catch((e) => toast(e.message, true));
   P.onReports((s) => { STATUS = s; updateSaveUi(); });
   document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); doSave(false); } });

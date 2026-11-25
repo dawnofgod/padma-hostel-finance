@@ -57,6 +57,16 @@ After the browser restarts it may ask once more for permission the next time you
 
 **Extra safety:** the **⬇ Backup file** button (top right) downloads one file with all data, for a USB stick or email.
 
+## 3c. Scanner for old paper forms (one-time setup)
+
+The **📷 Scan old paper form** button on the Admissions page reads a photo of an old application form with Google Gemini (free tier) and fills in the admission page. It needs internet. In Vercel, go to **Project → Settings → Environment Variables** and add:
+- `GEMINI_API_KEY`: create one at aistudio.google.com/apikey
+- `SCAN_PIN`: a PIN you choose; the app asks for it once on each computer
+
+Then **redeploy** (Deployments → ⋯ → Redeploy). Note that Google's free tier may use the photos you send to improve its products.
+
+When you scan, yellow boxes were read from the form and orange boxes should be checked. "Payment received" is unticked, so old joining fees aren't added to today's income, and monthly fees are tracked from the current month.
+
 ## 4. Daily use
 
 Everything works like the old app: Dashboard, Rooms, Admissions, Students, Monthly Fee, Income, Expenditure, Settings, the Boys/Girls switch, and the 💾 Save button.
@@ -84,6 +94,8 @@ Everything works like the old app: Dashboard, Rooms, Admissions, Students, Month
 | `js/core.js` | Business rules, data format and PDF report layouts from the old app |
 | `js/padma-web.js` | Storage on the computer, login, PDF making, saving to the folder and to Google Drive |
 | `js/bs-data.js` | Nepali calendar (B.S.) month lengths, 2000–2090 |
+| `api/scan.js` | Server part of the form scanner (runs on Vercel; holds the Gemini key) |
+| `tools/` | `python3 tools/build-core.py` rebuilds `js/core.js` from `tools/core-src/` |
 | `sw.js`, `js/pwa.js`, `manifest.webmanifest` | Offline support, install and automatic updates |
 | `vendor/` | html2canvas and jsPDF (MIT licence), used to make the PDF files |
 
