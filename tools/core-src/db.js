@@ -28,7 +28,7 @@ function defaultState() {
   logic.BRANCH_IDS.forEach((b) => { branches[b] = defaultBranch(b); });
   return {
     version: VERSION,
-    settings: { bedPrices: { ...DEFAULT_BED_PRICES }, admission: { ...DEFAULT_ADMISSION } },
+    settings: { bedPrices: { ...DEFAULT_BED_PRICES }, admission: { ...DEFAULT_ADMISSION }, sections: { 'PHB-01': { name: 'Padma Boys Hostel', on: true }, 'PHG-02': { name: 'Padma Girls Hostel', on: true } } },
     categories,
     branches,
   };
@@ -85,6 +85,13 @@ function normalize(input) {
   for (const k of [1, 2, 3, 4]) if (set.bedPrices && set.bedPrices[k] != null) out.settings.bedPrices[k] = num(set.bedPrices[k]);
   out.settings.admission = { ...DEFAULT_ADMISSION };
   for (const k of Object.keys(DEFAULT_ADMISSION)) if (set.admission && set.admission[k] != null) out.settings.admission[k] = num(set.admission[k]);
+  const sec = set.sections || {};
+  out.settings.sections = {
+    'PHB-01': { name: String((sec['PHB-01'] && sec['PHB-01'].name) || 'Padma Boys Hostel').slice(0, 60), on: true },
+    'PHG-02': { name: String((sec['PHG-02'] && sec['PHG-02'].name) || 'Padma Girls Hostel').slice(0, 60), on: !(sec['PHG-02'] && sec['PHG-02'].on === false) },
+  };
+  if (set.sectionsSet) out.settings.sectionsSet = true;
+  logic.applySections(out.settings);
   out.categories = Array.isArray(s.categories) && s.categories.length ? s.categories.filter((c) => c && c.name && (c.type === 'income' || c.type === 'expenditure')) : d.categories;
   // the categories the app itself writes must always exist
   for (const name of [logic.DEPOSIT_CAT, 'Monthly Fee', 'Admission Fee', 'Form Fee']) {

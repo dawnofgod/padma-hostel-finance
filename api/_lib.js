@@ -2,26 +2,39 @@
 //
 // Vercel Environment Variables:
 //   KV_REST_API_URL / KV_REST_API_TOKEN  (or UPSTASH_REDIS_REST_URL / _TOKEN) – the free Upstash Redis database
-//   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET – OAuth client "Padma Hostel Finance (web app)"
-//   ADMIN_EMAIL     – optional; the only Gmail allowed into the admin panel (default below)
+//   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET – Google OAuth web client
 //   GEMINI_API_KEY  – for the form scanner
-// The owner's Google Drive permission is saved in the database when the admin signs in (no copy/paste).
+//   ADMIN_EMAIL     – optional; the only Gmail allowed into the admin panel (default below)
+//   APP_ENV=test    – set ONLY for the test copy (Preview deployments). Test data then lives under other
+//                     database keys and in the Drive folder "Padma Hostel Finance – TEST", so it never mixes with real data.
 const crypto = require('crypto');
 
-const ORIGIN = process.env.APP_ORIGIN || 'https://padma-hostel-finance.vercel.app';
+const ENV = process.env.APP_ENV === 'test' ? 'test' : 'live';
+const PREFIX = ENV === 'test' ? 'padma-test:' : 'padma:';
+const ROOT_NAME = ENV === 'test' ? 'Padma Hostel Finance – TEST' : 'Padma Hostel Finance';
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'arunpoudel9957@gmail.com').toLowerCase();
-const REDIRECT = ORIGIN + '/api/drive-callback';
-const SCOPE = 'https://www.googleapis.com/auth/drive.file openid email';
+const ADMIN_SCOPE = 'https://www.googleapis.com/auth/drive.file openid email profile';
+const USER_SCOPE = 'openid email profile';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER = 'application/vnd.google-apps.folder';
-const ROOT_NAME = 'Padma Hostel Finance';
+const BACKUP_PATH = 'Backup/padma-data.json';
+const ONLINE_MS = 3 * 60 * 1000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const rand = (n) => crypto.randomBytes(n).toString('hex');
-const SECRET = () => String(process.env.SESSION_SECRET || process.env.GOOGLE_CLIENT_SECRET || '') + '|padma';
+const SECRET = () => String(process.env.SESSION_SECRET || process.env.GOOGLE_CLIENT_SECRET || '') + '|padma5|' + ENV;
 const hmac = (s) => crypto.createHmac('sha256', SECRET()).update(String(s)).digest('hex');
+const K = (k) => PREFIX + k;
+
+// The address the request came to (live or test copy). Google only accepts redirect addresses that are
+// registered in the OAuth client, so a wrong host can't be abused.
+function originOf(req) {
+  const h = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  return /^[a-z0-9.-]+(:\d+)?$/i.test(h) ? (/^localhost(:|$)/.test(h) ? 'http://' : 'https://') + h : '';
+}
+const redirectOf = (req) => originOf(req) + '/api/callback';
 
 // ---------------- database (Upstash Redis REST) ----------------
 const DB_URL = () => process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
@@ -43,12 +56,38 @@ async function hset(key, obj) {
   if (args.length) await redis('HSET', key, ...args);
 }
 
-// ---------------- Google (owner's Drive) ----------------
+// ---------------- Google ----------------
+async function exchangeCode(req, code) {
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code, client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uri: redirectOf(req), grant_type: 'authorization_code' }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error_description || j.error || 'Google sign-in failed.');
+  let id = {};
+  try { id = JSON.parse(Buffer.from(String(j.id_token).split('.')[1], 'base64url').toString()); } catch { /* ignore */ }
+  if (id.aud !== process.env.GOOGLE_CLIENT_ID || !id.sub || !id.email) throw new Error('Google did not confirm the account.');
+  if (id.email_verified === false) throw new Error('This Google account has no verified email.');
+  return { tokens: j, id: { sub: String(id.sub), email: String(id.email).toLowerCase(), name: String(id.name || ''), picture: String(id.picture || '') } };
+}
+function googleAuthUrl(req, kind, extra = {}) {
+  const ts = String(Date.now());
+  const st = `${kind}.${ts}`;
+  return 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID, redirect_uri: redirectOf(req), response_type: 'code',
+    scope: kind === 'admin' ? ADMIN_SCOPE : USER_SCOPE, state: st + '.' + hmac(st), ...extra,
+  });
+}
+function checkState(state) {
+  const [kind, ts, sig] = String(state || '').split('.');
+  if (!kind || !ts || sig !== hmac(kind + '.' + ts) || Date.now() - Number(ts) > 15 * 60 * 1000) return null;
+  return kind;
+}
+
 let cached = { token: null, exp: 0, rt: null };
-async function ownerRefreshToken() { return (await redis('HGET', 'owner', 'refresh')) || null; }
 async function accessToken() {
-  const rt = await ownerRefreshToken();
-  if (!rt) { const e = new Error('Google Drive is not connected yet (the admin must sign in to the admin panel once).'); e.status = 409; throw e; }
+  const rt = (await redis('HGET', K('owner'), 'refresh')) || null;
+  if (!rt) { const e = new Error('Google Drive backup is not connected yet (the admin must sign in to the admin panel once).'); e.status = 409; throw e; }
   if (cached.token && cached.rt === rt && Date.now() < cached.exp - 60000) return cached.token;
   const r = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -59,20 +98,21 @@ async function accessToken() {
   cached = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000, rt };
   return cached.token;
 }
-async function gapi(method, url, body, headers = {}, token) {
+async function gapi(method, url, body, headers = {}, token, raw) {
   const t = token || await accessToken();
   const r = await fetch(url, { method, headers: { Authorization: 'Bearer ' + t, ...headers }, body });
   if (!r.ok) {
     let msg = String(r.status); try { const j = await r.json(); msg = (j.error && j.error.message) || msg; } catch { /* ignore */ }
     const e = new Error('Google Drive: ' + msg); e.status = r.status === 401 ? 409 : r.status; throw e;
   }
+  if (raw) return r;
   return r.status === 204 ? null : r.json();
 }
 const q = (s) => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 async function findChild(parentId, name, folder, token) {
   const j = await gapi('GET', `${API}/files?` + new URLSearchParams({
     q: `name='${q(name)}' and '${parentId}' in parents and trashed=false` + (folder ? ` and mimeType='${FOLDER}'` : ` and mimeType!='${FOLDER}'`),
-    fields: 'files(id,name)', spaces: 'drive', pageSize: '10',
+    fields: 'files(id,name,modifiedTime)', spaces: 'drive', pageSize: '10',
   }), undefined, {}, token);
   return j.files && j.files[0] ? j.files[0].id : null;
 }
@@ -83,12 +123,13 @@ async function makeFolder(name, parentId, token) {
 async function findOrMakeFolder(name, parentId, token) { return (await findChild(parentId, name, true, token)) || makeFolder(name, parentId, token); }
 
 const folderCache = new Map();
-async function folderFor(rootId, parts) {
+async function folderFor(rootId, parts, create = true) {
   let parent = rootId, key = rootId;
   for (const name of parts) {
     key += '/' + name;
     if (folderCache.has(key)) { parent = folderCache.get(key); continue; }
-    parent = await findOrMakeFolder(name, parent);
+    parent = create ? await findOrMakeFolder(name, parent) : await findChild(parent, name, true);
+    if (!parent) return null;
     folderCache.set(key, parent);
   }
   return parent;
@@ -99,41 +140,83 @@ function cleanPath(p) {
   for (const s of parts) if (!s || s === '.' || s === '..' || s.length > 150 || /[\u0000-\u001f]/.test(s)) return null;
   return parts;
 }
+const folderNameOf = (u) => `${(u.profile || u.gname || 'User').replace(/[\\/:*?"<>|]/g, ' ').trim().slice(0, 60)} (${u.email})`;
 
-// ---------------- clients ----------------
-// client:<id> hash: name, folderId, frozen, createdAt, tokenHash, deviceName, lastSeen, version, dataBytes, records, activatedAt
-async function clientByToken(token) {
+// The user's own Drive folder inside "Padma Hostel Finance" in the owner's Drive; made the first time it is needed.
+async function userFolder(u) {
+  if (u.folderId) return u.folderId;
+  const root = await redis('HGET', K('owner'), 'root');
+  if (!root) { const e = new Error('Google Drive backup is not connected yet (the admin must sign in to the admin panel once).'); e.status = 409; throw e; }
+  const name = folderNameOf(u);
+  const folderId = await findOrMakeFolder(name, root);
+  await hset(K('user:' + u.sub), { folderId, folderName: name });
+  u.folderId = folderId; u.folderName = name;
+  return folderId;
+}
+
+// The latest data backup the hostel app uploaded (read-only).
+async function readBackup(u) {
+  if (!u.folderId) throw Object.assign(new Error('This user has not backed up to Google Drive yet.'), { status: 404 });
+  const parts = BACKUP_PATH.split('/'); const name = parts.pop();
+  const dir = await folderFor(u.folderId, parts, false);
+  const id = dir && await findChild(dir, name, false);
+  if (!id) throw Object.assign(new Error('No backup file yet. It is uploaded about 20 seconds after a change is made (when online).'), { status: 404 });
+  const meta = await gapi('GET', `${API}/files/${id}?fields=modifiedTime,size`);
+  const r = await gapi('GET', `${API}/files/${id}?alt=media`, undefined, {}, undefined, true);
+  return { data: JSON.parse(await r.text()), modifiedTime: meta.modifiedTime, size: Number(meta.size) || 0 };
+}
+
+// ---------------- users ----------------
+// user:<sub> hash: email, gname, gpicture, hostel, profile, logo (small data URL), sections (JSON), onboarded,
+//   createdAt, lastSeen, version, dataBytes, records, students, device, frozen, folderId, folderName, lastBackup
+async function userByToken(token) {
   if (!token || String(token).length < 20) return null;
-  const id = await redis('GET', 'token:' + sha(token));
-  if (!id) return null;
-  const c = await hgetall('client:' + id);
-  return c && c.name ? { id, ...c } : null;
+  const sub = await redis('GET', K('token:' + sha(token)));
+  if (!sub) return null;
+  const u = await hgetall(K('user:' + sub));
+  return u && u.email ? { sub, ...u } : null;
 }
-const newCode = () => { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; const b = crypto.randomBytes(8); for (let i = 0; i < 8; i++) s += A[b[i] % A.length]; return s.slice(0, 4) + '-' + s.slice(4); };
+async function newDeviceToken(sub, device) {
+  const token = rand(24);
+  await redis('SET', K('token:' + sha(token)), sub);
+  await redis('SADD', K('user:' + sub + ':tokens'), sha(token));
+  await hset(K('user:' + sub), { lastSeen: Date.now(), device: String(device || '').slice(0, 80) || undefined });
+  return token;
+}
+async function deleteUser(sub) {
+  const toks = (await redis('SMEMBERS', K('user:' + sub + ':tokens'))) || [];
+  for (const t of toks) await redis('DEL', K('token:' + t));
+  await redis('DEL', K('user:' + sub), K('user:' + sub + ':tokens'), K('user:' + sub + ':files'));
+  await redis('SREM', K('users'), sub);
+}
 
-// ---------------- admin session cookie ----------------
-function sessionCookie(email) {
-  const exp = Date.now() + 12 * 3600e3;
-  const v = Buffer.from(JSON.stringify({ email, exp })).toString('base64url');
-  return `padma_admin=${v}.${hmac(v)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${12 * 3600}`;
+// ---------------- cookies ----------------
+function signed(name, obj, maxAge) {
+  const v = Buffer.from(JSON.stringify(obj)).toString('base64url');
+  return `${name}=${v}.${hmac(name + v)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 }
-function adminFrom(req) {
-  const m = /(?:^|;\s*)padma_admin=([^;]+)/.exec(req.headers.cookie || '');
+function readSigned(req, name) {
+  const m = new RegExp('(?:^|;\\s*)' + name + '=([^;]+)').exec(req.headers.cookie || '');
   if (!m) return null;
   const [v, sig] = m[1].split('.');
-  if (!v || !sig || hmac(v) !== sig) return null;
-  try { const o = JSON.parse(Buffer.from(v, 'base64url').toString()); return o.exp > Date.now() && String(o.email).toLowerCase() === ADMIN_EMAIL ? o : null; } catch { return null; }
+  if (!v || !sig || hmac(name + v) !== sig) return null;
+  try { const o = JSON.parse(Buffer.from(v, 'base64url').toString()); return o.exp > Date.now() ? o : null; } catch { return null; }
 }
+const clearCookie = (name) => `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+const adminCookie = (email) => signed('padma_admin', { email, exp: Date.now() + 12 * 3600e3 }, 12 * 3600);
+function adminFrom(req) { const o = readSigned(req, 'padma_admin'); return o && String(o.email).toLowerCase() === ADMIN_EMAIL ? o : null; }
 
 function body(req) {
   if (req.body && typeof req.body === 'object') return req.body;
   const s = String(req.body || '');
   try { return JSON.parse(s); } catch { return Object.fromEntries(new URLSearchParams(s)); }
 }
+const fail = (res, e) => res.status(e.status && e.status >= 400 && e.status < 600 ? e.status : 502).json({ error: e.message || String(e) });
 
 module.exports = {
-  ORIGIN, ADMIN_EMAIL, REDIRECT, SCOPE, API, UPLOAD, FOLDER, ROOT_NAME,
-  sleep, sha, rand, hmac, dbReady, redis, hgetall, hset,
-  accessToken, gapi, findChild, makeFolder, findOrMakeFolder, folderFor, cleanPath,
-  clientByToken, newCode, sessionCookie, adminFrom, body,
+  ENV, PREFIX, K, ROOT_NAME, ADMIN_EMAIL, API, UPLOAD, FOLDER, BACKUP_PATH, ONLINE_MS,
+  sleep, sha, rand, hmac, originOf, redirectOf, dbReady, redis, hgetall, hset,
+  exchangeCode, googleAuthUrl, checkState, accessToken, gapi, findChild, makeFolder, findOrMakeFolder, folderFor, cleanPath,
+  folderNameOf, userFolder, readBackup, userByToken, newDeviceToken, deleteUser,
+  signed, readSigned, clearCookie, adminCookie, adminFrom, body, fail,
 };

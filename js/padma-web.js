@@ -1,4 +1,4 @@
-// Browser replacement for the old desktop app's main.js + preload.js.
+// Padma Hostel Finance – the browser side (replaces the old desktop app's main.js + preload.js).
 // Gives the screens the same `window.padma` API, but:
 //   • data is kept in this browser's private storage (IndexedDB) on this computer
 //   • "Save" writes the PDF reports + a data backup into a folder you choose once
@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '4.0.0';
+  const APP_VERSION = '5.0.0';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -38,11 +38,13 @@
 
   let LOGO = '';
   async function loadLogo() {
+    if (LOGO) return;
     try {
       const blob = await (await fetch('assets/logo.png')).blob();
       LOGO = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
     } catch { LOGO = ''; }
   }
+  async function orgName() { return 'Padma Hostel'; }
 
   const stamp = () => {
     const t = dates.today();
@@ -279,9 +281,9 @@
 
   // ---------------- Save: data backup + PDF reports into the folder and/or Google Drive ----------------
   // One PDF is made once per Save and reused for both places.
-  function buildAll() {
+  function buildAll(org) {
     const nowYm = logic.ymOf(dates.today().bs.str);
-    const built = reports.buildReports(state, nowYm, { logo: LOGO });
+    const built = reports.buildReports(state, nowYm, { logo: LOGO, org });
     const generated = stamp();
     const cache = new Map();
     const getPdf = async (f) => {
@@ -325,8 +327,8 @@
       const driveOn = await GDrive.isConnected();
       const hasLocal = !!(await getFolder());
       if (!driveOn && !hasLocal && !folderSupported) throw new Error('Connect Google Drive in Settings to save the reports.');
-      if (!LOGO) await loadLogo();
-      const all = buildAll();
+      await loadLogo();
+      const all = buildAll(await orgName());
       let r = { changed: 0, removed: 0, errors: 0 };
       const notes = [];
       let pending = false, driveDone = false;
@@ -366,27 +368,37 @@
     return getStatus();
   }
 
-  // ---------------- This computer as a "client" of the admin panel ----------------
-  // The admin adds a client in the admin panel and gives an activation code. Typed once here, it gives this
-  // computer a token. With it the app: tells the admin panel it is online (every 2 minutes), backs up to the
-  // folder the admin assigned in the owner's Google Drive, can use the form scanner, and gets locked if frozen.
+  // ---------------- Account (Google sign-in) ----------------
+  // First open: Sign in with Google → profile name → username + password → app. Every person gets their own
+  // profile and their own backup folder in the owner's Google Drive.
+  // The account is kept on this computer (kv 'account': { token, user, pending }). With it the app tells the
+  // admin panel it is online (every 2 minutes), backs up to the person's own folder in the owner's Google Drive,
+  // can use the form scanner, and gets locked if the admin freezes the account.
   const Client = (() => {
-    const listeners = [];
-    const tok = async () => { await ready; return kvGet('clientToken'); };
+    const listeners = [], removedListeners = [];
+    const acc = async () => { await ready; return (await kvGet('account')) || null; };
+    const tok = async () => { const a = await acc(); return a && a.token; };
     async function setFrozen(v) {
       const was = !!(await kvGet('frozen'));
       await kvSet('frozen', !!v);
       if (was !== !!v) listeners.forEach((cb) => { try { cb(!!v); } catch { /* ignore */ } });
     }
+    async function removed(msg) {
+      await kvDel('account'); await kvDel('driveManifest'); await setFrozen(false);
+      removedListeners.forEach((cb) => { try { cb(msg); } catch { /* ignore */ } });
+    }
+    async function post(body, url) {
+      let r;
+      try { r = await fetch(url || 'api/user', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+      catch { throw new Error('Could not reach the server (check the internet connection).'); }
+      return { r, out: await r.json().catch(() => ({})) };
+    }
     async function call(body, opts = {}) {
       const token = await tok();
-      if (!token) { const e = new Error('This computer is not activated yet. Open Settings → Activate this computer and enter the code from the admin.'); e.code = 'ACTIVATE'; throw e; }
-      let r;
-      try { r = await fetch(opts.url || 'api/client', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, token }) }); }
-      catch { throw new Error('Could not reach the server (check the internet connection).'); }
-      const out = await r.json().catch(() => ({}));
+      if (!token) { const e = new Error('Please sign in with Google first.'); e.code = 'SIGNIN'; throw e; }
+      const { r, out } = await post({ ...body, token }, opts.url);
       if (r.status === 423 || out.frozen) { await setFrozen(true); const e = new Error(out.error || 'This account is frozen. Please contact the admin.'); e.code = 'FROZEN'; throw e; }
-      if (r.status === 401 && out.deactivated) { await kvDel('clientToken'); await kvDel('clientInfo'); const e = new Error(out.error); e.code = 'ACTIVATE'; throw e; }
+      if (r.status === 401 && out.removed) { await removed(out.error); const e = new Error(out.error); e.code = 'SIGNIN'; throw e; }
       if (!r.ok) { const e = new Error(out.error || 'Server error ' + r.status); e.status = r.status; throw e; }
       return out;
     }
@@ -397,43 +409,77 @@
       const br = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : 'Browser';
       return { version: APP_VERSION, dataBytes: state ? JSON.stringify(state).length : 0, records: cnt('income') + cnt('expenditure') + cnt('fees'), students: cnt('students'), device: `${os} · ${br}` };
     }
+    async function remember(user) {
+      const a = (await acc()) || {};
+      // a profile changed on this computer but not yet sent keeps the local version
+      a.user = a.pending ? { ...user, hostel: a.user.hostel, profile: a.user.profile, logo: a.user.logo, sections: a.user.sections, onboarded: true } : user;
+      a.checkedAt = new Date().toISOString();
+      await kvSet('account', a);
+      return a;
+    }
     async function ping() {
       if (!navigator.onLine || !(await tok())) return info();
       try {
+        const a = await acc();
+        if (a.pending) await pushProfile();
         const out = await call({ action: 'ping', stats: stats() });
         await setFrozen(false);
-        await kvSet('clientInfo', { name: out.name, driveReady: !!(out.drive && out.drive.ready), folderName: (out.drive && out.drive.folderName) || '', checkedAt: new Date().toISOString() });
-      } catch (e) { if (e.code !== 'FROZEN' && e.code !== 'ACTIVATE') console.warn('ping failed', e); }
+        await remember(out.user);
+      } catch (e) { if (e.code !== 'FROZEN' && e.code !== 'SIGNIN') console.warn('ping failed', e); }
       return info();
     }
-    async function activate(code) {
+    async function pushProfile() {
+      const a = await acc();
+      const u = a.user || {};
+      const out = await call({ action: 'profile', hostel: u.hostel, profile: u.profile, logo: u.logo || '', sections: u.sections || null });
+      a.pending = false; await kvSet('account', a);
+      await remember(out.user);
+    }
+    // After Google sends the person back (/?signedin=1) the server hands over a token once.
+    async function claim() {
       await ready;
-      if (!navigator.onLine) throw new Error('Activation needs internet.');
-      let r;
-      try { r = await fetch('api/client', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'activate', code, device: stats().device }) }); }
-      catch { throw new Error('Could not reach the server (check the internet connection).'); }
-      const out = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(out.error || 'Activation failed (' + r.status + ').');
-      await kvSet('clientToken', out.token);
-      await kvDel('driveManifest'); // new client/folder → upload everything once
-      await setFrozen(!!out.frozen);
-      await kvSet('clientInfo', { name: out.name, driveReady: false });
-      return ping();
+      const { r, out } = await post({ action: 'claim', device: stats().device });
+      if (!r.ok) throw new Error(out.error || 'Sign-in failed (' + r.status + ').');
+      await kvDel('driveManifest');
+      await kvSet('account', { token: out.token, user: out.user, pending: false, signedInAt: new Date().toISOString() });
+      await setFrozen(!!out.user.frozen);
+      return info();
+    }
+    async function saveProfile(p) {
+      const a = await acc();
+      if (!a) throw new Error('Please sign in with Google first.');
+      a.user = { ...(a.user || {}), hostel: String(p.hostel || '').trim(), profile: String(p.profile || '').trim(), logo: p.logo || '', sections: p.sections || null, onboarded: true };
+      a.pending = true;
+      await kvSet('account', a);
+      if (navigator.onLine) { try { await pushProfile(); } catch (e) { if (e.code) throw e; console.warn('profile will be sent later', e); } }
+      return info();
     }
     async function info() {
       await ready;
-      const i = (await kvGet('clientInfo')) || {};
-      return { activated: !!(await tok()), name: i.name || '', driveReady: !!i.driveReady, folderName: i.folderName || '', checkedAt: i.checkedAt || null, frozen: !!(await kvGet('frozen')), lastSync: i.lastSync || null, lastBackup: i.lastBackup || null };
+      const a = (await kvGet('account')) || null;
+      const u = (a && a.user) || {};
+      return {
+        signedIn: !!(a && a.token), onboarded: !!u.onboarded, email: u.email || '', gname: u.gname || '', gpicture: u.gpicture || '',
+        hostel: u.hostel || '', profile: u.profile || '', logo: u.logo || '', sections: u.sections || null, env: u.env || '',
+        driveReady: !!(u.drive && u.drive.ready), folderName: (u.drive && u.drive.folderName) || '', pending: !!(a && a.pending),
+        checkedAt: (a && a.checkedAt) || null, frozen: !!(await kvGet('frozen')), lastSync: (a && a.lastSync) || null, lastBackup: (a && a.lastBackup) || null,
+      };
     }
-    async function note(k) { const i = (await kvGet('clientInfo')) || {}; i[k] = new Date().toISOString(); await kvSet('clientInfo', i); }
-    return { call, ping, activate, info, note, isFrozen: async () => { await ready; return !!(await kvGet('frozen')); }, onFrozen: (cb) => listeners.push(cb), hasToken: async () => !!(await tok()) };
+    async function note(k) { const a = await acc(); if (!a) return; a[k] = new Date().toISOString(); await kvSet('account', a); }
+    async function myBackup() { return call({ action: 'mybackup' }); }
+    return {
+      call, ping, claim, saveProfile, info, note, myBackup,
+      isFrozen: async () => { await ready; return !!(await kvGet('frozen')); },
+      onFrozen: (cb) => listeners.push(cb), onRemoved: (cb) => removedListeners.push(cb),
+      hasToken: async () => !!(await tok()),
+    };
   })();
   setInterval(() => { if (!document.hidden) Client.ping(); }, 120000);
   window.addEventListener('online', () => Client.ping());
 
-  // ---------------- Google Drive backup (owner's Drive, folder chosen by the admin) ----------------
+  // ---------------- Google Drive backup (owner's Drive, one folder per person) ----------------
   const GDrive = (() => {
-    const isConnected = async () => (await Client.hasToken()) && (await Client.info()).driveReady;
+    const isConnected = async () => { const i = await Client.info(); return i.signedIn && i.onboarded && i.driveReady; };
     async function upload(rel, blob, mime) {
       const { uploadUrl } = await Client.call({ action: 'start', path: rel, mime, size: blob.size });
       let r;
@@ -481,7 +527,7 @@
   })();
 
   // ---------------- backup file download / restore ----------------
-  function downloadBackup() {
+  async function downloadBackup() {
     const t = dates.today();
     const blob = new Blob([JSON.stringify(state)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -490,7 +536,7 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
-  // Reads a backup made by this app OR by the old desktop app (padma-data-v3.json / Backup\padma-data.json).
+  // Reads a backup made by this app, by Padma Hostel Finance, or by the old desktop app (padma-data-v3.json).
   async function readBackupFile(file) {
     let data;
     try { data = JSON.parse(await file.text()); } catch { throw new Error('This file is not a Padma Hostel backup (it could not be read).'); }
@@ -528,8 +574,8 @@
         const br = logic.BRANCHES[branchId];
         const rec = br && state.branches[branchId].records.find((r) => r.id === recordId);
         if (!rec) throw new Error('Admission record not found.');
-        if (!LOGO) await loadLogo();
-        reports.buildReports(state, '', { logo: LOGO }); // sets the logo used by the form
+        await loadLogo();
+        reports.buildReports(state, '', { logo: LOGO, org: await orgName() }); // sets the logo and name used by the form
         const html = reports.admissionHtml(rec, br).replace('{{GENERATED}}', stamp());
         if (win) win.document.write('<p style="font:14px Segoe UI,Arial;padding:20px">Preparing the admission form…</p>');
         const blob = await htmlToPdf(html);
@@ -541,7 +587,7 @@
     onReports: (cb) => listeners.push(cb),
     drive: {
       status: async (token) => { guard(token); const f = await folderInfo(); return { configured: !!f.name, connected: f.permission === 'granted', lastSync: lastSaveAt, ...f }; },
-      upload: async (token) => { guard(token); downloadBackup(); return { count: 1, skipped: 0 }; },
+      upload: async (token) => { guard(token); await downloadBackup(); return { count: 1, skipped: 0 }; },
     },
     // Reads a photo of an old paper application form (needs internet). The photo is shrunk first, sent to this
     // app's own server (api/scan on Vercel) which asks Google Gemini, and is not stored anywhere.
@@ -559,17 +605,33 @@
         return { fields: out.fields || {}, image: dataUrl };
       },
     },
-    client: {
-      info: async (token) => { guard(token); return Client.info(); },
-      ping: async () => Client.ping(),
-      activate: async (token, code) => { guard(token); return Client.activate(code); },
+    // Google account. These work before the username/password login (they are needed to set it up).
+    account: {
+      info: () => Client.info(),
+      ping: () => Client.ping(),
+      signIn: () => { location.href = 'api/auth?kind=user'; },
+      claim: () => Client.claim(),
+      saveProfile: (p) => Client.saveProfile(p),
+      myBackup: () => Client.myBackup(),
       isFrozen: () => Client.isFrozen(),
       onFrozen: (cb) => Client.onFrozen(cb),
+      onRemoved: (cb) => Client.onRemoved(cb),
+      env: async () => { try { const r = await fetch('api/user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"action":"env"}' }); return (await r.json()).env || ''; } catch { return ''; } },
+    },
+    setSections: async (token, sections) => { guard(token); const next = JSON.parse(JSON.stringify(state)); next.settings.sections = sections; next.settings.sectionsSet = true; await storeState(next); return state; },
+    // first start on a new computer: take the data from this person's latest Google Drive backup
+    restoreFromDrive: async () => {
+      if (!(await auth.needsSetup())) throw new Error('Only possible while setting up this computer.');
+      const out = await Client.myBackup();
+      const n = db.normalize(out.data);
+      await storeState(n); await kvDel('manifest'); dirty = true;
+      const count = (k) => logic.BRANCH_IDS.reduce((a, b) => a + n.branches[b][k].length, 0);
+      return { students: count('students'), records: count('income') + count('expenditure') + count('fees'), modifiedTime: out.modifiedTime };
     },
     backup: {
-      download: async (token) => { guard(token); downloadBackup(); return true; },
+      download: async (token) => { guard(token); await downloadBackup(); return true; },
       read: async (token, file) => { guard(token); return readBackupFile(file); },
-      restore: async (token, data) => { guard(token); await storeState(data); await kvDel('manifest'); dirty = true; notify(); return state; },
+      restore: async (token, data) => { guard(token); if (!data.settings.sectionsSet && state.settings.sectionsSet) { data.settings.sections = state.settings.sections; data.settings.sectionsSet = true; } await storeState(data); await kvDel('manifest'); dirty = true; notify(); return state; },
       folderInfo: async (token) => { guard(token); return folderInfo(); },
       chooseFolder: async (token) => { guard(token); return chooseFolder(); },
       folderSupported,
@@ -577,6 +639,7 @@
     // business rules shared with the PDF reports
     logic: {
       BRANCHES: logic.BRANCHES,
+      activeBranchIds: logic.activeBranchIds,
       DEPOSIT_CAT: logic.DEPOSIT_CAT,
       feeStatus: logic.feeStatus,
       periodTotals: (branch, year, month) => {

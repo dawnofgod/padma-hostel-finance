@@ -3,11 +3,21 @@ const dates = require('./dates');
 
 const pad = (n) => String(n).padStart(2, '0');
 
+// Padma has two sections: Padma Boys Hostel and Padma Girls Hostel.
 const BRANCHES = {
-  'PHB-01': { id: 'PHB-01', name: 'Padma Boys Hostel', short: 'Boys' },
-  'PHG-02': { id: 'PHG-02', name: 'Padma Girls Hostel', short: 'Girls' },
+  'PHB-01': { id: 'PHB-01', name: 'Padma Boys Hostel', short: 'Boys', on: true },
+  'PHG-02': { id: 'PHG-02', name: 'Padma Girls Hostel', short: 'Girls', on: true },
 };
 const BRANCH_IDS = Object.keys(BRANCHES);
+function applySections(settings) {
+  const sec = (settings && settings.sections) || {};
+  for (const id of BRANCH_IDS) {
+    const x = sec[id] || {};
+    void x;
+    BRANCHES[id].on = true;
+  }
+}
+const activeBranchIds = () => BRANCH_IDS.filter((id) => BRANCHES[id].on);
 
 // Money taken as a refundable deposit is not the hostel's revenue.
 const DEPOSIT_CAT = 'Security Deposit (Refundable)';
@@ -73,6 +83,6 @@ function periodTotals(branch, year, month = 0) {
 }
 
 module.exports = {
-  pad, BRANCHES, BRANCH_IDS, DEPOSIT_CAT, isRefundable, revenueRows, sum,
+  pad, BRANCHES, BRANCH_IDS, applySections, activeBranchIds, DEPOSIT_CAT, isRefundable, revenueRows, sum,
   ymOf, prevYm, bedTypeOf, expectedIn, feeStatus, periodTotals,
 };

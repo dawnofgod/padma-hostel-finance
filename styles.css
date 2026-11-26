@@ -61,3 +61,12 @@ table.sheet tfoot td{background:var(--theme-light);font-weight:700}
 .scan-check { background: #fff7ed !important; outline: 2px solid #f59e0b; outline-offset: 0; }
 .scan-zoom { position: fixed; inset: 0; background: rgba(15,23,42,.85); z-index: 80; overflow: auto; cursor: zoom-out; display: flex; justify-content: center; padding: 20px; }
 .scan-zoom img { max-width: min(1100px, 100%); height: auto; border-radius: 8px; }
+
+/* ---- additions (classes not in the prebuilt tailwind.css) ---- */
+.w-12{width:3rem}.h-12{height:3rem}.w-20{width:5rem}.h-20{height:5rem}.w-24{width:6rem}.h-24{height:6rem}
+.border-2{border-width:2px}.border-dashed{border-style:dashed}.flex-none{flex:none}.min-w-0{min-width:0}
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.overflow-auto{overflow:auto}
+.py-8{padding-top:2rem;padding-bottom:2rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.pt-3{padding-top:.75rem}.mb-1{margin-bottom:.25rem}
+.leading-relaxed{line-height:1.625}.underline{text-decoration:underline}.hover\:bg-slate-50:hover{background:#f8fafc}
+.bg-orange-600{background:#ea580c}.text-center{text-align:center}
+.gate-step input[type=radio],.gate-step input[type=checkbox]{accent-color:var(--theme-main,#4338ca)}

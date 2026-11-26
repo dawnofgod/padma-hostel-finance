@@ -3,7 +3,7 @@
 // or GitHub.
 //
 // Needs GEMINI_API_KEY in Vercel (Project → Settings → Environment Variables), from https://aistudio.google.com/apikey.
-// Only activated, not-frozen computers can scan (they send their activation token).
+// Only signed-in, not-frozen accounts can scan (they send their device token).
 // Optional: GEMINI_MODEL – to force one model (otherwise the list below is tried in order).
 
 const L = require('./_lib');
@@ -76,8 +76,8 @@ module.exports = async (req, res) => {
   const key = process.env.GEMINI_API_KEY;
   if (!key || !L.dbReady()) return res.status(503).json({ error: 'The scanner is not set up yet on the server.' });
   const b = L.body(req);
-  const client = await L.clientByToken(b.token);
-  if (!client) { await L.sleep(500); return res.status(401).json({ error: 'This computer is not activated. Enter the activation code in Settings.', deactivated: true }); }
+  const client = await L.userByToken(b.token);
+  if (!client) { await L.sleep(500); return res.status(401).json({ error: 'Please sign in again.', removed: true }); }
   if (client.frozen === '1') return res.status(423).json({ error: 'This account is frozen. Please contact the admin.', frozen: true });
   const mime = String(b.mime || '');
   const data = String(b.image || '');
@@ -93,7 +93,7 @@ module.exports = async (req, res) => {
       if (Date.now() - started > 45000) break; // stay inside Vercel's time limit
       try {
         const fields = await callGemini(m, key, mime, data);
-        try { await L.hset('client:' + client.id, { lastSeen: Date.now(), scans: (Number(client.scans) || 0) + 1 }); } catch { /* ignore */ }
+        try { await L.hset(L.K('user:' + client.sub), { lastSeen: Date.now(), scans: (Number(client.scans) || 0) + 1 }); } catch { /* ignore */ }
         return res.status(200).json({ ok: true, model: m, fields });
       } catch (e) {
         last = e;

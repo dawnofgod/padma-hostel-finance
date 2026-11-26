@@ -125,18 +125,61 @@ async function doSave(web) {
   btn.disabled = false; $('webLabel').textContent = '⬇ Backup file'; updateSaveUi();
 }
 
-// ---------- login ----------
-let setupMode = false;
+// ---------- first start & login ----------
+// Sign in with Google → profile name → username + password → app. Each person has their own profile.
+let setupMode = false, ACC = {};
+const ob = { profile: '' };
+const showErr = (m) => { const e = $('loginErr'); e.textContent = m || ''; e.classList.toggle('hidden', !m); };
+function step(id) {
+  document.querySelectorAll('.gate-step').forEach((el) => el.classList.toggle('hidden', el.id !== 'step' + id));
+  showErr('');
+  const f = { Profile: 'obProfile', Login: 'loginUser' }[id];
+  if (f) setTimeout(() => $(f).focus(), 30);
+}
+function brandGate() { /* Padma branding is fixed */ }
 async function prepareLogin() {
+  P.account.env().then((env) => { if (env === 'test') { $('envBadge').classList.remove('hidden'); document.title = 'Padma Hostel Finance TEST'; } });
+  if (new URLSearchParams(location.search).has('signedin')) {
+    history.replaceState(null, '', location.pathname);
+    try { await P.account.claim(); } catch (e) { step('Signin'); showErr(e.message); return; }
+  }
+  ACC = await P.account.info();
+  brandGate(ACC);
+  if (!ACC.signedIn) { step('Signin'); return; }
+  if (!ACC.onboarded) {
+    ob.profile = ob.profile || ACC.gname || '';
+    $('obProfile').value = ob.profile;
+    step('Profile'); return;
+  }
   setupMode = await P.auth.needsSetup();
   if (setupMode) {
-    $('loginNote').innerHTML = '<b>Welcome!</b> First time on this computer: choose a username and password for this app. You will use them every time you open it.';
+    $('loginStepNo').classList.remove('hidden');
+    $('loginNote').innerHTML = '<b>Last step:</b> choose a username and password for this app on this computer. You will use them every time you open it (also without internet).';
     $('loginConfirmWrap').classList.remove('hidden');
     $('loginBtn').textContent = 'Create login & start →';
+    $('restoreWrap').classList.toggle('hidden', !ACC.driveReady);
+  } else {
+    $('loginNote').innerHTML = 'Signed in as <b>' + esc(ACC.profile || ACC.email) + '</b>. Enter your username and password.';
+  }
+  step('Login');
+}
+async function obNext(which) {
+  if (which === 'profile') {
+    ob.profile = $('obProfile').value.trim();
+    if (!ob.profile) return showErr('Please enter your profile name.');
+    try { await P.account.saveProfile({ hostel: 'Padma Hostel', profile: ob.profile, logo: '', sections: null }); } catch (e) { return showErr(e.message); }
+    return prepareLogin();
   }
 }
+document.querySelectorAll('[data-next]').forEach((b) => { b.onclick = () => obNext(b.dataset.next); });
+$('obProfile').addEventListener('keydown', (e) => { if (e.key === 'Enter') obNext('profile'); });
+$('googleBtn').onclick = () => { if (!navigator.onLine) return showErr('Signing in needs internet the first time.'); P.account.signIn(); };
+$('restoreDriveBtn').onclick = async () => {
+  const m = $('restoreMsg'); m.textContent = ' Getting the backup…';
+  try { const r = await P.restoreFromDrive(); m.textContent = ` ✔ Done: ${r.students} students, ${r.records} records (backup from ${new Date(r.modifiedTime).toLocaleString()}). Now choose the username and password.`; }
+  catch (e) { m.textContent = ' ' + e.message; }
+};
 async function login() {
-  const showErr = (m) => { const e = $('loginErr'); e.textContent = m; e.classList.remove('hidden'); };
   let r;
   if (setupMode) {
     if ($('loginPass').value !== $('loginPass2').value) return showErr('The two passwords are not the same.');
@@ -144,12 +187,24 @@ async function login() {
   } else {
     r = await P.auth.login($('loginUser').value.trim(), $('loginPass').value);
   }
-  if (!r.ok) { const e = $('loginErr'); e.textContent = r.error || 'Invalid credentials'; e.classList.remove('hidden'); return; }
+  if (!r.ok) return showErr(r.error || 'Invalid credentials');
   token = r.token; INFO.fallback = r.fallback;
-  const d = await P.load(token);
+  // the sections chosen while setting up go into the hostel's data once
+  let d = await P.load(token);
+  const acc = await P.account.info();
+  if (acc.sections && !d.state.settings.sectionsSet) {
+    await P.setSections(token, { ...acc.sections });
+    d = await P.load(token);
+  }
   S = d.state; INFO.folder = d.folder; INFO.dbFile = d.dbFile; STATUS = d.status;
+  ACC = acc;
   $('loginScreen').classList.add('hidden'); $('app').classList.remove('hidden');
   initApp();
+}
+function applyBranding() {
+  $('hdrSub').textContent = ACC.env === 'test' ? 'Finance Console · TEST' : 'Finance Console';
+  const who = ACC.profile ? ' · ' + ACC.profile : '';
+  $('hdrSub').title = (ACC.email || '') + who;
 }
 
 // ---------- shell ----------
@@ -567,27 +622,25 @@ function renderSettings() {
   <div class="card p-5"><div class="font-bold mb-3">Saving, folder &amp; backup</div><div class="text-sm space-y-1"><div>Data is stored inside the app on this computer the moment you type it — closing the app loses nothing.</div><div>Press <b>💾 Save</b> to write the PDF reports and a data backup into your save folder. Choose a folder inside <b>Google Drive</b> (Google Drive for Desktop) and Google uploads everything automatically. Last saved: <b>${esc(last)}</b>${STATUS.dirty ? ' · <span class="text-amber-600">unsaved changes</span>' : ''}</div></div>
     <div class="text-xs mono text-slate-600 mt-3 break-all" id="driveInfo">Save folder: checking…</div>
     <div class="flex flex-wrap gap-2 mt-3"><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="open-folder">📂 Choose save folder</button><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="regen">Rebuild all PDFs</button></div>
-    <div class="font-bold mt-5 mb-2">This computer &amp; Google Drive backup</div>
-    <div class="text-xs text-slate-500">Activate this computer once with the code from the admin. After that every 💾 Save also uploads the data backup and PDF reports to the hostel's Google Drive folder, the form scanner works, and the data backup is uploaded automatically about 20 seconds after each change (needs internet).</div>
+    <div class="font-bold mt-5 mb-2">Google Drive backup</div>
+    <div class="text-xs text-slate-500">Every 💾 Save also uploads the data backup and PDF reports to your own folder in Padma Hostel's Google Drive, and the data backup is uploaded automatically about 20 seconds after each change (needs internet).</div>
     <div class="text-xs mono text-slate-600 mt-2 break-all" id="gdInfo">Google Drive: checking…</div>
-    <div class="flex flex-wrap gap-2 mt-3" id="gdBtns"></div>
+    <div class="flex flex-wrap gap-2 mt-3" id="gdBtns"><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="cl-check">↻ Check now</button></div>
     <div class="font-bold mt-5 mb-2">Backup file</div>
-    <div class="text-xs text-slate-500">Download one file with all data, or restore from a backup. You can also restore the data of the old desktop app: <span class="mono">Documents\\PADMA HOSTEL FINANCE\\Backup\\padma-data.json</span></div>
+    <div class="text-xs text-slate-500">Download one file with all data, or restore from a backup. You can also restore a backup file from Padma Hostel Finance or the old desktop app.</div>
     <div class="flex flex-wrap gap-2 mt-3"><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="bk-download">⬇ Download backup file</button><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="bk-restore">⬆ Restore from backup…</button><input type="file" id="bkFile" accept=".json,application/json" class="hidden"></div>
     <div class="text-xs text-slate-400 mt-4">App version ${esc(P.version)}</div></div>
+  <div class="card p-5"><div class="font-bold mb-3">My profile</div>
+    <div class="flex items-center gap-3 mb-4">${ACC.gpicture ? `<img src="${esc(ACC.gpicture)}" referrerpolicy="no-referrer" class="w-12 h-12 rounded-full" alt="">` : ''}<div class="text-xs text-slate-500">Google account: <b>${esc(ACC.email)}</b><br>Your data and backups are kept in your own folder.</div></div>
+    ${field('Profile name (shown to the admin)', `<input class="field-input" id="pfProfile" maxlength="60" value="${esc(ACC.profile)}">`)}
+    <button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="pf-save">Save profile</button></div>
   <div class="card p-5"><div class="font-bold mb-3">Login (change username / password)</div>${field('Current password', '<input type="password" class="field-input" id="acOld">')}${field('New username', '<input class="field-input" id="acUser">')}${field('New password (min 6 characters)', '<input type="password" class="field-input" id="acNew">')}<button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="acc-save">Update login</button>${INFO.fallback ? '<div class="text-xs text-amber-700 mt-2">Default login admin/admin is active — please change it.</div>' : ''}</div></div>`;
   const gdRender = (g) => {
-    const e = $('gdInfo'), b = $('gdBtns'); if (!e || !b) return;
+    const e = $('gdInfo'); if (!e) return;
     const when = (t) => (t ? new Date(t).toLocaleString() : 'not yet');
-    if (!g.activated) {
-      e.innerHTML = '<span class="text-amber-700">Not activated yet. Enter the activation code you got from the admin.</span>';
-      b.innerHTML = '<input id="actCode" class="field-input mono uppercase" style="max-width:180px" placeholder="ABCD-1234" maxlength="9" autocomplete="off"><button class="btn text-sm px-3 py-2 rounded-md text-white font-semibold dynamic-bg" data-act="cl-activate">Activate this computer</button>';
-      return;
-    }
-    e.innerHTML = 'Activated as: <b>' + esc(g.name) + '</b> ✔<br>' + (g.driveReady ? 'Google Drive backup: <b>ready</b>' + (g.folderName ? ' · folder <b>' + esc(g.folderName) + '</b>' : '') + ' · last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '') : '<span class="text-amber-700">Google Drive backup: waiting for the admin to set it up.</span>');
-    b.innerHTML = '<button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="cl-check">↻ Check now</button><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="cl-recode">Use a new activation code</button>';
+    e.innerHTML = 'Signed in as <b>' + esc(g.email) + '</b>' + (g.pending ? ' · <span class="text-amber-700">profile changes will be sent when online</span>' : '') + '<br>' + (g.driveReady ? 'Google Drive backup: <b>ready</b>' + (g.folderName ? ' · folder <b>' + esc(g.folderName) + '</b>' : '') + ' · last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '') : '<span class="text-amber-700">Google Drive backup: not ready yet (the admin has to connect it). Your data is safe on this computer.</span>');
   };
-  P.client.info(token).then((g) => { gdRender(g); if (g.activated && navigator.onLine) P.client.ping().then(gdRender).catch(() => {}); }).catch(() => {});
+  P.account.info().then((g) => { gdRender(g); if (navigator.onLine) P.account.ping().then(gdRender).catch(() => {}); }).catch(() => {});
   P.backup.folderInfo(token).then((f) => {
     const e = $('driveInfo'); if (!e) return;
     if (!f.supported) { e.innerHTML = '<span class="text-rose-600">Saving into a folder needs Microsoft Edge or Google Chrome. Use “Download backup file” instead.</span>'; return; }
@@ -605,7 +658,7 @@ async function restoreFrom(file) {
     if (!ok) return;
     S = await P.backup.restore(token, data);
     STATUS = await P.reports.status(token);
-    setBranch(branch); updateSaveUi();
+    applyBranding(); setBranch(branch); updateSaveUi();
     toast('Backup restored.');
   } catch (e) { toast(e.message || String(e), true); }
 }
@@ -633,9 +686,14 @@ document.addEventListener('click', async (e) => {
     else if (a === 'cat-del') { S.categories = S.categories.filter((c) => !(c.type === type && c.name === el.dataset.name)); await persist(); renderSettings(); }
     else if (a === 'set-save') { [1, 2, 3, 4].forEach((n) => { S.settings.bedPrices[n] = num($('bp' + n).value); }); S.settings.admission = { admissionFee: num($('sAdm').value), deposit: num($('sDep').value), formFee: num($('sForm').value) }; await persist(); $('admDeposit').dataset.touched = ''; toast('Settings saved.'); }
     else if (a === 'open-folder') { const name = await P.backup.chooseFolder(token); toast('Save folder set: ' + name + '. Press 💾 Save to write the reports there.'); renderSettings(); }
-    else if (a === 'cl-activate') { const code = ($('actCode') || {}).value || ''; const g = await P.client.activate(token, code); toast('This computer is activated as ' + g.name + '.'); renderSettings(); }
-    else if (a === 'cl-check') { const g = await P.client.ping(); toast(g.activated ? (g.driveReady ? 'Connected. Google Drive backup is ready.' : 'Connected. Google Drive backup is not set up by the admin yet.') : 'Not activated.'); renderSettings(); }
-    else if (a === 'cl-recode') { const ok = await confirmBox('Use a new activation code?', 'Only do this if the admin gave you a new code (for example after moving to a new computer).', 'Enter new code'); if (ok) { const e = $('gdBtns'); if (e) e.innerHTML = '<input id="actCode" class="field-input mono uppercase" style="max-width:180px" placeholder="ABCD-1234" maxlength="9" autocomplete="off"><button class="btn text-sm px-3 py-2 rounded-md text-white font-semibold dynamic-bg" data-act="cl-activate">Activate this computer</button>'; } }
+    else if (a === 'cl-check') { if (!navigator.onLine) throw new Error('No internet right now.'); const g = await P.account.ping(); toast(g.driveReady ? 'Connected. Google Drive backup is ready.' : 'Connected. Google Drive backup is not ready yet.'); renderSettings(); }
+    else if (a === 'pf-save') {
+      const profile = $('pfProfile').value.trim();
+      if (!profile) throw new Error('Profile name cannot be empty.');
+      ACC = await P.account.saveProfile({ hostel: 'Padma Hostel', profile, logo: '', sections: null });
+      applyBranding(); setTab('settings');
+      toast(ACC.pending ? 'Saved. It will be sent when online.' : 'Profile saved.');
+    }
     else if (a === 'bk-download') { await P.backup.download(token); toast('Backup file downloaded.'); }
     else if (a === 'bk-restore') { const fi = $('bkFile'); fi.value = ''; fi.onchange = () => restoreFrom(fi.files[0]); fi.click(); }
     else if (a === 'regen') { toast('Rebuilding all PDFs…'); STATUS = await P.reports.regenerate(token); updateSaveUi(); toast(STATUS.errors ? STATUS.message : 'All PDFs rebuilt.', !!STATUS.errors); }
@@ -671,7 +729,8 @@ $('scanImg').onclick = () => { const z = document.createElement('div'); z.classN
   tickClock(); setInterval(tickClock, 1000); checkOnline(); setInterval(checkOnline, 5000);
   window.addEventListener('online', checkOnline); window.addEventListener('offline', checkOnline);
   setInterval(updateSaveUi, 600000);
-  setBranch('PHB-01'); setTab('dashboard'); updateSaveUi();
+  applyBranding(); setBranch(branch); setTab('dashboard'); updateSaveUi();
+  if (ACC.env === 'test') { const t = document.createElement('div'); t.className = 'text-center text-xs font-bold text-white bg-orange-600 py-1'; t.textContent = 'TEST COPY — separate test data'; document.body.prepend(t); }
 }
 
 $('loginBtn').onclick = login;
@@ -683,16 +742,22 @@ function frozenLock(on) {
   if (el) return;
   el = document.createElement('div'); el.id = 'frozenLock';
   el.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.92);display:flex;align-items:center;justify-content:center;padding:20px';
-  el.innerHTML = '<div style="background:#fff;border-radius:16px;padding:32px;max-width:440px;text-align:center"><div style="font-size:44px">❄</div><h2 style="font-size:22px;font-weight:700;margin:8px 0">Account frozen</h2><p style="color:#475569">This app has been frozen by the admin. Please contact the admin. Your data is safe on this computer.</p><button id="frozenCheck" class="btn mt-4 text-white px-4 py-2 rounded-md font-semibold dynamic-bg">Check again</button><div id="frozenMsg" style="font-size:12px;color:#64748b;margin-top:10px"></div></div>';
+  el.innerHTML = '<div style="background:#fff;border-radius:16px;padding:32px;max-width:440px;text-align:center"><div style="font-size:44px">❄</div><h2 style="font-size:22px;font-weight:700;margin:8px 0">Account frozen</h2><p style="color:#475569">This account has been frozen by the admin. Please contact the admin. Your data is safe on this computer.</p><button id="frozenCheck" class="btn mt-4 text-white px-4 py-2 rounded-md font-semibold dynamic-bg">Check again</button><div id="frozenMsg" style="font-size:12px;color:#64748b;margin-top:10px"></div></div>';
   document.body.appendChild(el);
   document.getElementById('frozenCheck').onclick = async () => {
     const m = document.getElementById('frozenMsg'); m.textContent = navigator.onLine ? 'Checking…' : 'No internet: connect and try again.';
     if (!navigator.onLine) return;
-    await P.client.ping(); if (await P.client.isFrozen()) m.textContent = 'Still frozen. Please contact the admin.';
+    await P.account.ping(); if (await P.account.isFrozen()) m.textContent = 'Still frozen. Please contact the admin.';
   };
 }
-P.client.onFrozen(frozenLock);
-P.client.isFrozen().then((f) => { frozenLock(f); }).catch(() => {});
-P.client.ping().catch(() => {});
+P.account.onFrozen(frozenLock);
+P.account.isFrozen().then((f) => { frozenLock(f); }).catch(() => {});
+P.account.ping().catch(() => {});
+// removed by the admin: back to "Sign in with Google" (the data stays on this computer)
+P.account.onRemoved((msg) => { alertRemoved(msg); });
+function alertRemoved(msg) {
+  if (!$('app').classList.contains('hidden')) { toast(msg || 'This account was removed by the admin.', true); setTimeout(() => location.reload(), 4000); }
+  else prepareLogin().then(() => showErr(msg || ''));
+}
 ['loginUser', 'loginPass', 'loginPass2'].forEach((i) => $(i).addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); }));
 $('loginUser').focus();

@@ -105,11 +105,21 @@ const dates = require('./dates');
 
 const pad = (n) => String(n).padStart(2, '0');
 
+// Padma has two sections: Padma Boys Hostel and Padma Girls Hostel.
 const BRANCHES = {
-  'PHB-01': { id: 'PHB-01', name: 'Padma Boys Hostel', short: 'Boys' },
-  'PHG-02': { id: 'PHG-02', name: 'Padma Girls Hostel', short: 'Girls' },
+  'PHB-01': { id: 'PHB-01', name: 'Padma Boys Hostel', short: 'Boys', on: true },
+  'PHG-02': { id: 'PHG-02', name: 'Padma Girls Hostel', short: 'Girls', on: true },
 };
 const BRANCH_IDS = Object.keys(BRANCHES);
+function applySections(settings) {
+  const sec = (settings && settings.sections) || {};
+  for (const id of BRANCH_IDS) {
+    const x = sec[id] || {};
+    void x;
+    BRANCHES[id].on = true;
+  }
+}
+const activeBranchIds = () => BRANCH_IDS.filter((id) => BRANCHES[id].on);
 
 // Money taken as a refundable deposit is not the hostel's revenue.
 const DEPOSIT_CAT = 'Security Deposit (Refundable)';
@@ -175,7 +185,7 @@ function periodTotals(branch, year, month = 0) {
 }
 
 module.exports = {
-  pad, BRANCHES, BRANCH_IDS, DEPOSIT_CAT, isRefundable, revenueRows, sum,
+  pad, BRANCHES, BRANCH_IDS, applySections, activeBranchIds, DEPOSIT_CAT, isRefundable, revenueRows, sum,
   ymOf, prevYm, bedTypeOf, expectedIn, feeStatus, periodTotals,
 };
 
@@ -261,7 +271,7 @@ function defaultState() {
   logic.BRANCH_IDS.forEach((b) => { branches[b] = defaultBranch(b); });
   return {
     version: VERSION,
-    settings: { bedPrices: { ...DEFAULT_BED_PRICES }, admission: { ...DEFAULT_ADMISSION } },
+    settings: { bedPrices: { ...DEFAULT_BED_PRICES }, admission: { ...DEFAULT_ADMISSION }, sections: { 'PHB-01': { name: 'Padma Boys Hostel', on: true }, 'PHG-02': { name: 'Padma Girls Hostel', on: true } } },
     categories,
     branches,
   };
@@ -318,6 +328,13 @@ function normalize(input) {
   for (const k of [1, 2, 3, 4]) if (set.bedPrices && set.bedPrices[k] != null) out.settings.bedPrices[k] = num(set.bedPrices[k]);
   out.settings.admission = { ...DEFAULT_ADMISSION };
   for (const k of Object.keys(DEFAULT_ADMISSION)) if (set.admission && set.admission[k] != null) out.settings.admission[k] = num(set.admission[k]);
+  const sec = set.sections || {};
+  out.settings.sections = {
+    'PHB-01': { name: String((sec['PHB-01'] && sec['PHB-01'].name) || 'Padma Boys Hostel').slice(0, 60), on: true },
+    'PHG-02': { name: String((sec['PHG-02'] && sec['PHG-02'].name) || 'Padma Girls Hostel').slice(0, 60), on: !(sec['PHG-02'] && sec['PHG-02'].on === false) },
+  };
+  if (set.sectionsSet) out.settings.sectionsSet = true;
+  logic.applySections(out.settings);
   out.categories = Array.isArray(s.categories) && s.categories.length ? s.categories.filter((c) => c && c.name && (c.type === 'income' || c.type === 'expenditure')) : d.categories;
   // the categories the app itself writes must always exist
   for (const name of [logic.DEPOSIT_CAT, 'Monthly Fee', 'Admission Fee', 'Form Fee']) {
