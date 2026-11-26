@@ -4,7 +4,7 @@ Offline finance app for Padma Hostel, Lalitpur: rooms, admissions, students, mon
 
 * **Live app (real data):** branch `main`, on `https://padma-hostel-finance.vercel.app`
 * **Test copy:** branch `test`, on `https://padma-hostel-finance-test.vercel.app`. It uses separate test data and the Drive folder "Padma Hostel Finance – TEST".
-* **Admin panel:** `/admin.html` on either address. Only the admin Gmail can open it.
+* **Admin panel:** `/admin.html` on either address. It opens with the admin username + password.
 
 ## Logins
 

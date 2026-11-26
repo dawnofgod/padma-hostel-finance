@@ -60,7 +60,7 @@ async function exchangeCode(req, code) {
     body: new URLSearchParams({ code, client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uri: redirectOf(req), grant_type: 'authorization_code' }),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error_description || j.error || 'Google sign-in failed.');
+  if (!r.ok) throw new Error(j.error_description || j.error || 'Google Drive connection failed.');
   let id = {};
   try { id = JSON.parse(Buffer.from(String(j.id_token).split('.')[1], 'base64url').toString()); } catch { /* ignore */ }
   if (id.aud !== process.env.GOOGLE_CLIENT_ID || !id.sub || !id.email) throw new Error('Google did not confirm the account.');
