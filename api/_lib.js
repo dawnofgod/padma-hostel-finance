@@ -151,9 +151,17 @@ async function userFolder(u) {
   return folderId;
 }
 
-// The latest data backup the hostel app uploaded (read-only).
+// The latest records of a user (read-only): the copy kept on the server, else the Google Drive backup.
 async function readBackup(u) {
-  if (!u.folderId) throw Object.assign(new Error('This user has not backed up to Google Drive yet.'), { status: 404 });
+  const snap = await redis('GET', K('user:' + u.sub + ':copy'));
+  if (snap) {
+    const data = JSON.parse(require('zlib').gunzipSync(Buffer.from(snap, 'base64')).toString());
+    return { data, modifiedTime: new Date(Number(u.lastCopy) || Date.now()).toISOString(), size: Number(u.copyBytes) || 0, source: 'server' };
+  }
+  return readDriveBackup(u);
+}
+async function readDriveBackup(u) {
+  if (!u.folderId) throw Object.assign(new Error('No records received yet. They arrive within about 2 minutes after the person uses the app online.'), { status: 404 });
   const parts = BACKUP_PATH.split('/'); const name = parts.pop();
   const dir = await folderFor(u.folderId, parts, false);
   const id = dir && await findChild(dir, name, false);
@@ -191,7 +199,7 @@ async function deleteUser(sub) {
   for (const t of toks) await redis('DEL', K('token:' + t));
   const u = await hgetall(K('user:' + sub));
   if (u.username) await redis('DEL', K('username:' + u.username));
-  await redis('DEL', K('user:' + sub), K('user:' + sub + ':tokens'), K('user:' + sub + ':files'));
+  await redis('DEL', K('user:' + sub), K('user:' + sub + ':tokens'), K('user:' + sub + ':files'), K('user:' + sub + ':copy'));
   await redis('SREM', K('users'), sub);
 }
 

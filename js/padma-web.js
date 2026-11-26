@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '5.1.1';
+  const APP_VERSION = '5.2.0';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -182,7 +182,10 @@
       } catch (e) { console.warn('auto backup failed', e); }
     }, 3000);
     clearTimeout(driveTimer);
-    driveTimer = setTimeout(() => { GDrive.backupOnly().catch((e) => console.warn('Drive auto backup failed', e)); }, 20000);
+    driveTimer = setTimeout(() => {
+      GDrive.backupOnly().catch((e) => console.warn('Drive auto backup failed', e));
+      Client.ping().catch(() => {}); // also sends the copy for the admin panel
+    }, 20000);
   }
 
   // ---------------- PDF making (html2canvas + jsPDF) ----------------
@@ -421,12 +424,30 @@
     async function ping() {
       if (!navigator.onLine || !(await tok())) return info();
       try {
-        const a = await acc();
-          const out = await call({ action: 'ping', stats: stats() });
+        const out = await call({ action: 'ping', stats: stats() });
         await setFrozen(false);
         await remember(out.user);
+        await sendCopy();
       } catch (e) { if (e.code !== 'FROZEN' && e.code !== 'SIGNIN') console.warn('ping failed', e); }
       return info();
+    }
+    // A compressed copy of the records goes to the server whenever it changed, so the admin can open
+    // "View records" and a new computer can bring the data back, even without Google Drive.
+    let copyBusy = false;
+    async function sendCopy() {
+      if (copyBusy || !state || typeof CompressionStream === 'undefined') return;
+      copyBusy = true;
+      try {
+        const json = JSON.stringify(state);
+        const h = hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(json)));
+        const a = await acc();
+        if (!a || a.copyHash === h) return;
+        const gz = await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+        let bin = ''; const u8 = new Uint8Array(gz);
+        for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+        await call({ action: 'copy', data: btoa(bin), bytes: json.length });
+        const b = await acc(); b.copyHash = h; b.lastCopy = new Date().toISOString(); await kvSet('account', b);
+      } catch (e) { if (e.code !== 'FROZEN' && e.code !== 'SIGNIN') console.warn('copy failed', e); } finally { copyBusy = false; }
     }
     async function login(username, password) {
       await ready;

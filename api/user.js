@@ -5,6 +5,7 @@
 //   {action:'changepw', token, old, password}
 //   {action:'start', token, path, mime, size}        → { uploadUrl }  (browser PUTs the file straight to Google)
 //   {action:'trash', token, path}
+//   {action:'copy', token, data}                     compressed copy of the records (for View records)
 //   {action:'mybackup', token}                        → { data, modifiedTime }  (restore on a new computer)
 //   {action:'signout', token}
 // A frozen account gets HTTP 423 for everything; a removed account gets 401 {removed:true}.
@@ -64,6 +65,14 @@ module.exports = async (req, res) => {
       if (!L.checkPw(b.old, full.pw)) return res.status(400).json({ error: 'The current password is not correct.' });
       if (String(b.password || '').length < 6) return res.status(400).json({ error: 'The new password must have at least 6 characters.' });
       await L.hset(key, { pw: L.hashPw(b.password) });
+      return res.status(200).json({ ok: true });
+    }
+    if (b.action === 'copy') {
+      const data = String(b.data || '');
+      if (!/^[A-Za-z0-9+/=]+$/.test(data) || data.length > 3000000) return res.status(400).json({ error: 'The copy is too big.' });
+      try { JSON.parse(require('zlib').gunzipSync(Buffer.from(data, 'base64')).toString()); } catch { return res.status(400).json({ error: 'Bad copy.' }); }
+      await L.redis('SET', L.K('user:' + u.sub + ':copy'), data);
+      await L.hset(key, { lastCopy: Date.now(), copyBytes: Number(b.bytes) || 0, lastBackup: Date.now() });
       return res.status(200).json({ ok: true });
     }
     if (b.action === 'mybackup') return res.status(200).json(await L.readBackup(u));

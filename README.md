@@ -22,7 +22,7 @@ Offline finance app for Padma Hostel, Lalitpur: rooms, admissions, students, mon
   * last backup
   * app version
   * a link to their Drive folder
-* **View records** is read-only. It opens their students, monthly fees, income, expenditure, admissions and rooms from their latest backup.
+* **View records** is read-only. It opens their students, monthly fees, income, expenditure, admissions and rooms from the copy the app sends to the server (within about 2 minutes, also without Google Drive).
 * **New password** sets a new password and logs the person out everywhere. **Rename** changes their name. **Freeze** locks the app on their computers. **Remove** deletes the login. Their local data and Drive files are kept.
 
 ## Publishing updates

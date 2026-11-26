@@ -586,7 +586,7 @@ function renderSettings() {
   <div class="card p-5"><div class="font-bold mb-3">My account</div>
     <div class="text-sm mb-1">Name: <b>${esc(ACC.profile)}</b></div><div class="text-sm mb-3">Username: <b>${esc(ACC.username)}</b></div>
     <div class="text-xs text-slate-500 mb-4">Your name and username are set by the admin. Your data and backups are kept in your own folder.</div>
-    <button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="restore-drive">⤓ Bring my data from the Google Drive backup</button></div>
+    <button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="restore-drive">⤓ Bring my data from my online backup</button></div>
   <div class="card p-5"><div class="font-bold mb-3">Change my password</div>${field('Current password', '<input type="password" class="field-input" id="acOld">')}${field('New password (min 6 characters)', '<input type="password" class="field-input" id="acNew">')}<button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="acc-save">Change password</button><div class="text-xs text-slate-500 mt-2">Needs internet. If you forget your password, the admin can set a new one.</div></div></div>`;
   const gdRender = (g) => {
     const e = $('gdInfo'); if (!e) return;
@@ -646,7 +646,7 @@ document.addEventListener('click', async (e) => {
     else if (a === 'acc-save') { await P.account.changePassword(token, $('acOld').value, $('acNew').value); $('acOld').value = ''; $('acNew').value = ''; toast('Password changed.'); }
     else if (a === 'restore-drive') {
       if (!navigator.onLine) throw new Error('This needs internet.');
-      if (!(await confirmBox('Bring data from Google Drive?', 'Replace the data on this computer with your latest Google Drive backup? Changes made here after that backup will be lost.', 'Replace'))) return;
+      if (!(await confirmBox('Bring my data from the online backup?', 'Replace the data on this computer with your latest online backup (for example on a new laptop)? Changes made here after that backup will be lost.', 'Replace'))) return;
       const r = await P.restoreFromDrive(token); const d = await P.load(token); S = d.state; STATUS = await P.reports.status(token);
       applyBranding(); setBranch(branch); setTab('settings'); toast(`Done: ${r.students} students, ${r.records} records.`);
     }
