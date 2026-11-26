@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '5.2.0';
+  const APP_VERSION = '5.2.1';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -487,7 +487,7 @@
       return {
         signedIn: !!(a && a.token), onboarded: true, username: u.username || '', email: u.username || '', gname: '', gpicture: '',
         hostel: u.hostel || '', profile: u.profile || '', logo: u.logo || '', sections: u.sections || null, env: u.env || '',
-        driveReady: !!(u.drive && u.drive.ready), folderName: (u.drive && u.drive.folderName) || '', pending: !!(a && a.pending),
+        driveReady: !!(u.drive && u.drive.ready), driveOff: !!(u.drive && u.drive.off), folderName: (u.drive && u.drive.folderName) || '', pending: !!(a && a.pending),
         checkedAt: (a && a.checkedAt) || null, frozen: !!(await kvGet('frozen')), lastSync: (a && a.lastSync) || null, lastBackup: (a && a.lastBackup) || null,
       };
     }

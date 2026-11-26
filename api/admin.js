@@ -7,6 +7,7 @@
 //   {action:'resetpw', sub, password}  {action:'rename', sub, profile}
 //   {action:'freeze'|'unfreeze'|'delete'|'records', sub}
 //   {action:'adminpw', old, username, password}               change the admin's own login
+//   {action:'driveon'|'driveoff', sub}                         Google Drive backup on/off for one person
 //   {action:'disconnect'}                                     forget the Google Drive connection
 const L = require('./_lib');
 
@@ -23,7 +24,7 @@ async function listUsers() {
       online: Date.now() - last < L.ONLINE_MS, lastSeen: last || null, version: u.version || '', device: u.device || '',
       dataBytes: Number(u.dataBytes) || 0, records: Number(u.records) || 0, students: Number(u.students) || 0, scans: Number(u.scans) || 0,
       driveBytes: Object.values(files).reduce((a, b) => a + (Number(b) || 0), 0), driveFiles: Object.keys(files).length,
-      lastBackup: Number(u.lastBackup) || null, folderId: u.folderId || '', folderName: u.folderName || '', neverLoggedIn: !last,
+      lastBackup: Number(u.lastBackup) || null, folderId: u.folderId || '', folderName: u.folderName || '', neverLoggedIn: !last, driveOff: u.driveOff === '1',
     });
   }
   return out.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || a.profile.localeCompare(b.profile));
@@ -117,6 +118,10 @@ module.exports = async (req, res) => {
         const name = L.folderNameOf({ ...u, profile });
         try { await L.gapi('PATCH', `${L.API}/files/${u.folderId}?fields=id`, JSON.stringify({ name }), { 'Content-Type': 'application/json' }); await L.hset(L.K('user:' + sub), { folderName: name }); } catch (e) { console.warn(e.message); }
       }
+      return res.status(200).json({ ok: true });
+    }
+    if (b.action === 'driveon' || b.action === 'driveoff') {
+      await L.hset(L.K('user:' + sub), { driveOff: b.action === 'driveoff' ? '1' : '0' });
       return res.status(200).json({ ok: true });
     }
     if (b.action === 'freeze' || b.action === 'unfreeze') {

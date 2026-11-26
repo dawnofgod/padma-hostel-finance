@@ -591,7 +591,7 @@ function renderSettings() {
   const gdRender = (g) => {
     const e = $('gdInfo'); if (!e) return;
     const when = (t) => (t ? new Date(t).toLocaleString() : 'not yet');
-    e.innerHTML = 'Logged in as <b>' + esc(g.username) + '</b><br>' + (g.driveReady ? 'Google Drive backup: <b>ready</b>' + (g.folderName ? ' · folder <b>' + esc(g.folderName) + '</b>' : '') + ' · last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '') : '<span class="text-amber-700">Google Drive backup: not connected yet (the admin connects it in the admin panel). Your data is safe on this computer.</span>');
+    e.innerHTML = 'Logged in as <b>' + esc(g.username) + '</b><br>' + (g.driveReady ? 'Google Drive backup: <b>ready</b>' + (g.folderName ? ' · folder <b>' + esc(g.folderName) + '</b>' : '') + ' · last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '') : (g.driveOff ? '<span class="text-slate-600">Google Drive backup is turned off for your account by the admin. Your data is safe on this computer and the admin still receives your records.</span>' : '<span class="text-amber-700">Google Drive backup: not connected yet (the admin connects it in the admin panel). Your data is safe on this computer.</span>'));
   };
   P.account.info().then((g) => { gdRender(g); if (navigator.onLine) P.account.ping().then(gdRender).catch(() => {}); }).catch(() => {});
   P.backup.folderInfo(token).then((f) => {

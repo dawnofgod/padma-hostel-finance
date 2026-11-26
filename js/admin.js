@@ -81,7 +81,8 @@
     if (me.env === 'test') { $('testBar').classList.remove('hidden'); document.title = 'Padma TEST – Admin'; }
     $('stDrive').innerHTML = me.drive.connected ? '✔ Connected' : '<span style="color:#b91c1c">Not connected</span>';
     $('stDriveS').textContent = me.drive.connected ? `${me.drive.email} · folder "${me.root}"` : 'Backups stay on each computer until you connect.';
-    $('driveBtn').textContent = me.drive.connected ? 'Connect a different Google Drive' : 'Connect Google Drive';
+    $('driveBtn').textContent = me.drive.connected ? 'Change Google account' : 'Connect Google Drive';
+    $('driveOffBtn').classList.toggle('hidden', !me.drive.connected);
     $('stScan').innerHTML = me.gemini ? '✔ Ready' : '<span style="color:#b91c1c">No key</span>';
     $('stScanS').textContent = me.gemini ? 'Gemini (free tier)' : 'GEMINI_API_KEY missing in Vercel';
     await refresh();
@@ -121,7 +122,7 @@
             <div>Last active<b>${esc(ago(u.lastSeen))}</b></div>
             <div>Students<b>${u.students}</b></div>
             <div>Records<b>${u.records}</b></div>
-            <div>Drive storage<b>${size(u.driveBytes)}</b></div>
+            <div>Drive backup<b>${u.driveOff ? 'Off' : size(u.driveBytes)}</b></div>
             <div>Last backup<b>${esc(ago(u.lastBackup))}</b></div>
             <div>App<b>${esc(u.version || '–')}</b></div>
           </div>
@@ -131,6 +132,7 @@
             ${folder}
             <button data-a="resetpw">🔑 New password</button>
             <button data-a="rename">✎ Rename</button>
+            ${u.driveOff ? '<button data-a="driveon">☁ Drive backup: Off → turn on</button>' : '<button data-a="driveoff">☁ Drive backup: On → turn off</button>'}
             ${u.frozen ? '<button class="ice" data-a="unfreeze">Unfreeze</button>' : '<button class="ice" data-a="freeze">❄ Freeze</button>'}
             <button class="danger" data-a="delete">Remove</button>
           </div>
@@ -163,7 +165,7 @@
       if (a === 'freeze' && !(await dialog('Freeze ' + name + '?', 'The app on their computers locks at the next check (within about 2 minutes when online). Their data stays on their computers. You can unfreeze any time.', [], 'Freeze'))) return;
       if (a === 'delete' && !(await dialog('Remove ' + name + '?', 'Their username stops working and the app goes back to the login screen. The data on their computer and the backup files in your Google Drive are <b>not</b> deleted.', [], 'Remove', true))) return;
       await api({ action: a, sub });
-      toast({ freeze: 'Frozen.', unfreeze: 'Unfrozen.', delete: 'Removed.' }[a]);
+      toast({ freeze: 'Frozen.', unfreeze: 'Unfrozen.', delete: 'Removed.', driveon: 'Drive backup turned on.', driveoff: 'Drive backup turned off. Their records still show in View records.' }[a]);
       await refresh();
     } catch (err) { toast(err.message, true); }
   });
@@ -172,6 +174,10 @@
       { id: 'old', label: 'Current password', type: 'password' }, { id: 'username', label: 'Username', value: ($('who').textContent || '').replace('Admin: ', '') }, { id: 'password', label: 'New password (at least 6 characters)', type: 'password' },
     ], 'Save', (x) => api({ action: 'adminpw', old: x.old, username: x.username, password: x.password }));
     if (v) { toast('Admin login changed.'); start(); }
+  };
+  $('driveOffBtn').onclick = async () => {
+    if (!(await dialog('Disconnect Google Drive?', 'New backups stop going to Google Drive. Files already in Drive stay there. The app and View records keep working. You can connect again any time.', [], 'Disconnect', true))) return;
+    try { await api({ action: 'disconnect' }); toast('Google Drive disconnected.'); start(); } catch (err) { toast(err.message, true); }
   };
   $('q').addEventListener('input', render);
   $('filter').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; FILTER = b.dataset.f; document.querySelectorAll('#filter button').forEach((x) => x.classList.toggle('sel', x === b)); render(); });

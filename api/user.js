@@ -16,7 +16,7 @@ function publicUser(u, ownerReady) {
   return {
     username: u.username, email: u.username, gname: '', gpicture: '', hostel: 'Padma Hostel', profile: u.profile || '',
     logo: '', sections, onboarded: true, frozen: u.frozen === '1',
-    drive: { ready: !!ownerReady, folderName: u.folderName || '' }, env: L.ENV,
+    drive: { ready: !!ownerReady && u.driveOff !== '1', off: u.driveOff === '1', folderName: u.folderName || '' }, env: L.ENV,
   };
 }
 const ownerReady = async () => !!(await L.redis('HGET', L.K('owner'), 'refresh'));
@@ -83,6 +83,7 @@ module.exports = async (req, res) => {
     const name = parts.pop();
 
     if (b.action === 'start') {
+      if (u.driveOff === '1') return res.status(409).json({ error: 'Google Drive backup is turned off for this account by the admin.' });
       const mime = String(b.mime || ''); const size = Number(b.size) || 0;
       if (!['application/pdf', 'application/json'].includes(mime)) return res.status(400).json({ error: 'Only PDF and JSON files are uploaded.' });
       if (!(size > 0 && size < 50 * 1024 * 1024)) return res.status(400).json({ error: 'File size is not allowed.' });
