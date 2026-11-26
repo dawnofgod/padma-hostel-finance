@@ -2,7 +2,7 @@
 // To publish an update: change VERSION below (e.g. 3.0.1) and upload the changed files to GitHub.
 // Open copies of the app notice it and show "A new version of the app is ready – Update now".
 // Your records are NOT stored here; updates never touch them.
-const VERSION = '5.1.0';
+const VERSION = '5.1.1';
 const CACHE = 'padma-finance-' + VERSION;
 const FILES = [
   './',
@@ -51,6 +51,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return; // server pages (Drive connect, scanner) always come from the internet
+  if (/^\/(admin\.html|js\/admin\.js)$/.test(url.pathname)) return; // the admin panel is online-only and always fresh
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     if (req.mode === 'navigate') {
