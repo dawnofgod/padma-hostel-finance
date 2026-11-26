@@ -1,8 +1,8 @@
-// Calls from the hostel app.
+// Calls from the app. Staff log in with the username + password the admin gave them.
 //   {action:'env'}                                   → { env }   ("test" on the test copy)
-//   {action:'claim'}  (after Google sign-in, cookie)  → { token, user }
+//   {action:'login', username, password, device}     → { token, user }
 //   {action:'ping', token, stats}                    → { user }   (also tells the admin panel "online")
-//   {action:'profile', token, hostel, profile, logo, sections} → { user }
+//   {action:'changepw', token, old, password}
 //   {action:'start', token, path, mime, size}        → { uploadUrl }  (browser PUTs the file straight to Google)
 //   {action:'trash', token, path}
 //   {action:'mybackup', token}                        → { data, modifiedTime }  (restore on a new computer)
@@ -10,13 +10,11 @@
 // A frozen account gets HTTP 423 for everything; a removed account gets 401 {removed:true}.
 const L = require('./_lib');
 
-const LOGO_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
-
 function publicUser(u, ownerReady) {
   let sections = null; try { sections = u.sections ? JSON.parse(u.sections) : null; } catch { /* ignore */ }
   return {
-    email: u.email, gname: u.gname || '', gpicture: u.gpicture || '', hostel: u.hostel || '', profile: u.profile || '',
-    logo: u.logo || '', sections, onboarded: u.onboarded === '1', frozen: u.frozen === '1',
+    username: u.username, email: u.username, gname: '', gpicture: '', hostel: 'Padma Hostel', profile: u.profile || '',
+    logo: '', sections, onboarded: true, frozen: u.frozen === '1',
     drive: { ready: !!ownerReady, folderName: u.folderName || '' }, env: L.ENV,
   };
 }
@@ -29,18 +27,20 @@ module.exports = async (req, res) => {
   if (b.action === 'env') return res.status(200).json({ env: L.ENV });
   if (!L.dbReady()) return res.status(503).json({ error: 'The server is not set up yet (database missing).' });
   try {
-    if (b.action === 'claim') {
-      const h = L.readSigned(req, 'padma_handoff');
-      if (!h || !h.sub) return res.status(401).json({ error: 'Google sign-in did not finish. Please try again.' });
-      const u = await L.hgetall(L.K('user:' + h.sub));
-      if (!u.email) return res.status(401).json({ error: 'Account not found. Please sign in again.' });
-      const token = await L.newDeviceToken(h.sub, b.device);
-      res.setHeader('Set-Cookie', L.clearCookie('padma_handoff'));
-      return res.status(200).json({ token, user: publicUser(u, await ownerReady()) });
+    if (b.action === 'login') {
+      const name = L.cleanUser(b.username);
+      if (await L.locked(name)) return res.status(429).json({ error: 'Too many wrong passwords. Wait 15 minutes or ask the admin.' });
+      const sub = name && await L.redis('GET', L.K('username:' + name));
+      const u = sub ? await L.hgetall(L.K('user:' + sub)) : {};
+      if (!u.username || !L.checkPw(b.password, u.pw)) { await L.failed(name || '?'); await L.sleep(700); return res.status(401).json({ error: 'Wrong username or password.', wrong: true }); }
+      if (u.frozen === '1') return res.status(423).json({ error: 'This account is frozen by the admin. Please contact the admin.', frozen: true });
+      await L.redis('DEL', L.K('fail:' + name));
+      const token = await L.newDeviceToken(sub, b.device);
+      return res.status(200).json({ token, user: publicUser({ sub, ...u }, await ownerReady()) });
     }
 
     const u = await L.userByToken(b.token);
-    if (!u) { await L.sleep(400); return res.status(401).json({ error: 'This account was removed by the admin. Sign in again to start a new profile.', removed: true }); }
+    if (!u) { await L.sleep(400); return res.status(401).json({ error: 'You were signed out (the admin removed the account or reset the password). Log in again.', removed: true }); }
     const key = L.K('user:' + u.sub);
     if (b.action === 'signout') {
       await L.redis('DEL', L.K('token:' + L.sha(b.token)));
@@ -59,35 +59,18 @@ module.exports = async (req, res) => {
       return res.status(200).json({ user: publicUser(u, await ownerReady()) });
     }
 
-    if (b.action === 'profile') {
-      const hostel = 'Padma Hostel';
-      const profile = String(b.profile || '').trim().slice(0, 60);
-      if (!profile) return res.status(400).json({ error: 'Enter your profile name.' });
-      const fields = { hostel, profile, onboarded: '1', lastSeen: Date.now() };
-      if (b.logo !== undefined) {
-        const logo = String(b.logo || '');
-        if (logo && (!LOGO_RE.test(logo) || logo.length > 200000)) return res.status(400).json({ error: 'The logo picture is too big or not a picture.' });
-        fields.logo = logo;
-      }
-      if (b.sections && typeof b.sections === 'object') fields.sections = JSON.stringify(b.sections).slice(0, 1000);
-      const renamed = u.folderId && profile !== u.profile;
-      await L.hset(key, fields);
-      Object.assign(u, fields);
-      try {
-        if (renamed) {
-          const name = L.folderNameOf(u);
-          await L.gapi('PATCH', `${L.API}/files/${u.folderId}?fields=id`, JSON.stringify({ name }), { 'Content-Type': 'application/json' });
-          await L.hset(key, { folderName: name }); u.folderName = name;
-        } else if (await ownerReady()) await L.userFolder(u);
-      } catch (e) { console.warn('folder', e.message); }
-      return res.status(200).json({ user: publicUser(u, await ownerReady()) });
+    if (b.action === 'changepw') {
+      const full = await L.hgetall(key);
+      if (!L.checkPw(b.old, full.pw)) return res.status(400).json({ error: 'The current password is not correct.' });
+      if (String(b.password || '').length < 6) return res.status(400).json({ error: 'The new password must have at least 6 characters.' });
+      await L.hset(key, { pw: L.hashPw(b.password) });
+      return res.status(200).json({ ok: true });
     }
-
     if (b.action === 'mybackup') return res.status(200).json(await L.readBackup(u));
 
     const parts = L.cleanPath(b.path);
     if (!parts) return res.status(400).json({ error: 'Bad file path.' });
-    if (u.onboarded !== '1') return res.status(409).json({ error: 'Finish setting up your profile first.' });
+    if (u.onboarded !== '1') return res.status(409).json({ error: 'Account not ready.' });
     const name = parts.pop();
 
     if (b.action === 'start') {

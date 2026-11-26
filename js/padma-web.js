@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '5.0.0';
+  const APP_VERSION = '5.1.0';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -368,9 +368,10 @@
     return getStatus();
   }
 
-  // ---------------- Account (Google sign-in) ----------------
-  // First open: Sign in with Google → profile name → username + password → app. Every person gets their own
-  // profile and their own backup folder in the owner's Google Drive.
+  // ---------------- Account (username + password made by the admin) ----------------
+  // Staff log in with the username + password the admin gave them. The first login on a computer needs
+  // internet; after that the same login also works offline. Every person has their own profile and their own
+  // backup folder in the owner's Google Drive.
   // The account is kept on this computer (kv 'account': { token, user, pending }). With it the app tells the
   // admin panel it is online (every 2 minutes), backs up to the person's own folder in the owner's Google Drive,
   // can use the form scanner, and gets locked if the admin freezes the account.
@@ -421,45 +422,49 @@
       if (!navigator.onLine || !(await tok())) return info();
       try {
         const a = await acc();
-        if (a.pending) await pushProfile();
-        const out = await call({ action: 'ping', stats: stats() });
+          const out = await call({ action: 'ping', stats: stats() });
         await setFrozen(false);
         await remember(out.user);
       } catch (e) { if (e.code !== 'FROZEN' && e.code !== 'SIGNIN') console.warn('ping failed', e); }
       return info();
     }
-    async function pushProfile() {
-      const a = await acc();
-      const u = a.user || {};
-      const out = await call({ action: 'profile', hostel: u.hostel, profile: u.profile, logo: u.logo || '', sections: u.sections || null });
-      a.pending = false; await kvSet('account', a);
-      await remember(out.user);
-    }
-    // After Google sends the person back (/?signedin=1) the server hands over a token once.
-    async function claim() {
+    async function login(username, password) {
       await ready;
-      const { r, out } = await post({ action: 'claim', device: stats().device });
-      if (!r.ok) throw new Error(out.error || 'Sign-in failed (' + r.status + ').');
-      await kvDel('driveManifest');
-      await kvSet('account', { token: out.token, user: out.user, pending: false, signedInAt: new Date().toISOString() });
-      await setFrozen(!!out.user.frozen);
-      return info();
+      const name = String(username || '').trim().toLowerCase();
+      let r = null, out = {};
+      if (navigator.onLine) {
+        try { ({ r, out } = await post({ action: 'login', username: name, password, device: stats().device })); } catch { r = null; }
+      }
+      if (r && r.ok) {
+        const prev = (await kvGet('account')) || {};
+        if (prev.user && prev.user.username !== out.user.username) await kvDel('driveManifest');
+        await kvSet('account', { token: out.token, user: out.user, pending: false, signedInAt: new Date().toISOString() });
+        await setFrozen(false);
+        await kvSet('auth', await makeCred(name, password)); // so the same login works offline
+        return auth.login(name, password);
+      }
+      if (r && r.status === 423) { await setFrozen(true); return { ok: false, error: out.error || 'This account is frozen by the admin.' }; }
+      if (r && (r.status === 401 || r.status === 429 || r.status === 400)) return { ok: false, error: out.error || 'Wrong username or password.' };
+      // no internet (or server not reachable): use the login saved on this computer
+      if (await auth.needsSetup() || !((await kvGet('account')) || {}).token) return { ok: false, error: 'The first login on this computer needs internet.' };
+      const res = await auth.login(name, password);
+      if (!res.ok) res.error = 'Wrong username or password.';
+      return res;
     }
-    async function saveProfile(p) {
+    async function changePassword(oldPw, newPw) {
+      if (String(newPw || '').length < 6) throw new Error('The new password must have at least 6 characters.');
+      if (!navigator.onLine) throw new Error('Changing the password needs internet.');
+      await call({ action: 'changepw', old: oldPw, password: newPw });
       const a = await acc();
-      if (!a) throw new Error('Please sign in with Google first.');
-      a.user = { ...(a.user || {}), hostel: String(p.hostel || '').trim(), profile: String(p.profile || '').trim(), logo: p.logo || '', sections: p.sections || null, onboarded: true };
-      a.pending = true;
-      await kvSet('account', a);
-      if (navigator.onLine) { try { await pushProfile(); } catch (e) { if (e.code) throw e; console.warn('profile will be sent later', e); } }
-      return info();
+      await kvSet('auth', await makeCred(a.user.username, newPw));
+      return true;
     }
     async function info() {
       await ready;
       const a = (await kvGet('account')) || null;
       const u = (a && a.user) || {};
       return {
-        signedIn: !!(a && a.token), onboarded: !!u.onboarded, email: u.email || '', gname: u.gname || '', gpicture: u.gpicture || '',
+        signedIn: !!(a && a.token), onboarded: true, username: u.username || '', email: u.username || '', gname: '', gpicture: '',
         hostel: u.hostel || '', profile: u.profile || '', logo: u.logo || '', sections: u.sections || null, env: u.env || '',
         driveReady: !!(u.drive && u.drive.ready), folderName: (u.drive && u.drive.folderName) || '', pending: !!(a && a.pending),
         checkedAt: (a && a.checkedAt) || null, frozen: !!(await kvGet('frozen')), lastSync: (a && a.lastSync) || null, lastBackup: (a && a.lastBackup) || null,
@@ -468,7 +473,7 @@
     async function note(k) { const a = await acc(); if (!a) return; a[k] = new Date().toISOString(); await kvSet('account', a); }
     async function myBackup() { return call({ action: 'mybackup' }); }
     return {
-      call, ping, claim, saveProfile, info, note, myBackup,
+      call, ping, login, changePassword, info, note, myBackup,
       isFrozen: async () => { await ready; return !!(await kvGet('frozen')); },
       onFrozen: (cb) => listeners.push(cb), onRemoved: (cb) => removedListeners.push(cb),
       hasToken: async () => !!(await tok()),
@@ -609,9 +614,8 @@
     account: {
       info: () => Client.info(),
       ping: () => Client.ping(),
-      signIn: () => { location.href = 'api/auth?kind=user'; },
-      claim: () => Client.claim(),
-      saveProfile: (p) => Client.saveProfile(p),
+      login: (u, p) => Client.login(u, p),
+      changePassword: async (token, oldPw, newPw) => { guard(token); return Client.changePassword(oldPw, newPw); },
       myBackup: () => Client.myBackup(),
       isFrozen: () => Client.isFrozen(),
       onFrozen: (cb) => Client.onFrozen(cb),
@@ -619,9 +623,9 @@
       env: async () => { try { const r = await fetch('api/user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"action":"env"}' }); return (await r.json()).env || ''; } catch { return ''; } },
     },
     setSections: async (token, sections) => { guard(token); const next = JSON.parse(JSON.stringify(state)); next.settings.sections = sections; next.settings.sectionsSet = true; await storeState(next); return state; },
-    // first start on a new computer: take the data from this person's latest Google Drive backup
-    restoreFromDrive: async () => {
-      if (!(await auth.needsSetup())) throw new Error('Only possible while setting up this computer.');
+    // e.g. on a new computer: replace the data here with this person's latest Google Drive backup
+    restoreFromDrive: async (token) => {
+      guard(token);
       const out = await Client.myBackup();
       const n = db.normalize(out.data);
       await storeState(n); await kvDel('manifest'); dirty = true;

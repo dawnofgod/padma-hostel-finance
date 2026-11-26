@@ -17,43 +17,82 @@
   async function api(body) {
     const r = await fetch('api/admin', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 401 && j.login) { showLogin(j.env); throw new Error('Please sign in.'); }
+    if (r.status === 401 && j.login) { showLogin(j.setup, j.env); throw new Error('Please log in.'); }
     if (!r.ok) throw new Error(j.error || 'Server error ' + r.status);
     return j;
   }
-  function confirmBox(title, text, ok, danger) {
+  // small dialog: fields = [{id,label,type,value}] → resolves to values or null
+  function dialog(title, text, fields, ok, danger) {
     return new Promise((res) => {
-      const b = document.createElement('div'); b.className = 'modal-back';
-      b.innerHTML = `<div class="modal"><h3 style="margin-top:0">${esc(title)}</h3><p class="muted" style="font-size:14px">${text}</p><div style="display:flex;gap:8px;justify-content:flex-end"><button data-x="0">Cancel</button><button data-x="1" class="${danger ? 'danger' : 'primary'}">${esc(ok)}</button></div></div>`;
-      b.onclick = (e) => { const x = e.target.dataset.x; if (x != null) { b.remove(); res(x === '1'); } };
-      document.body.appendChild(b);
+      const bk = document.createElement('div'); bk.className = 'modal-back';
+      bk.innerHTML = `<div class="modal"><h3 style="margin-top:0">${esc(title)}</h3>${text ? `<p class="muted" style="font-size:14px">${text}</p>` : ''}
+        ${(fields || []).map((f) => `<label class="muted">${esc(f.label)}<input class="inp" data-f="${f.id}" type="${f.type || 'text'}" value="${esc(f.value || '')}" autocomplete="${f.type === 'password' ? 'new-password' : 'off'}"></label>`).join('')}
+        <p class="err" style="color:#b91c1c;font-size:13px;min-height:16px;margin:4px 0"></p>
+        <div style="display:flex;gap:8px;justify-content:flex-end"><button data-x="0">Cancel</button><button data-x="1" class="${danger ? 'danger' : 'primary'}">${esc(ok)}</button></div></div>`;
+      const done = (v) => { bk.remove(); res(v); };
+      bk.querySelector('[data-x="0"]').onclick = () => done(null);
+      const go = async () => {
+        const vals = {}; bk.querySelectorAll('[data-f]').forEach((i) => { vals[i.dataset.f] = i.value; });
+        if (dialog.check) { const e = await dialog.check(vals); if (e) { bk.querySelector('.err').textContent = e; return; } }
+        done(vals);
+      };
+      bk.querySelector('[data-x="1"]').onclick = go;
+      bk.querySelectorAll('input').forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); }));
+      document.body.appendChild(bk);
+      const first = bk.querySelector('input'); if (first) first.focus();
     });
   }
-  function showLogin(env) {
-    $('panel').classList.add('hidden'); $('loginBox').classList.remove('hidden'); $('logoutBtn').classList.add('hidden');
-    if (env === 'test') $('testBar').classList.remove('hidden');
+  // runs the API call inside the dialog so a mistake (e.g. username taken) can be fixed without retyping
+  async function ask(title, text, fields, ok, run, danger) {
+    dialog.check = async (vals) => { try { await run(vals); return ''; } catch (e) { return e.message; } };
+    const v = await dialog(title, text, fields, ok, danger);
+    dialog.check = null;
+    return v;
   }
+  let SETUP = false;
+  function showLogin(setup, env) {
+    SETUP = !!setup;
+    $('panel').classList.add('hidden'); $('loginBox').classList.remove('hidden'); $('logoutBtn').classList.add('hidden'); $('settingsBtn').classList.add('hidden');
+    if (env === 'test') $('testBar').classList.remove('hidden');
+    $('loginTitle').textContent = SETUP ? 'Create the admin login' : 'Admin login';
+    $('loginHint').textContent = SETUP ? 'First time here: choose the username and password you will use to open this admin panel. Only one admin login can be made.' : 'Only the admin can open this panel.';
+    $('aPass2Wrap').classList.toggle('hidden', !SETUP);
+    $('aPass').autocomplete = SETUP ? 'new-password' : 'current-password';
+    $('loginBtn').textContent = SETUP ? 'Create admin login' : 'Log in';
+    setTimeout(() => $('aUser').focus(), 30);
+  }
+  $('loginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    $('loginMsg').textContent = '';
+    if (SETUP && $('aPass').value !== $('aPass2').value) { $('loginMsg').textContent = 'The two passwords are not the same.'; return; }
+    try {
+      await api({ action: SETUP ? 'setup' : 'login', username: $('aUser').value, password: $('aPass').value });
+      $('aPass').value = ''; $('aPass2').value = '';
+      start();
+    } catch (err) { $('loginMsg').textContent = err.message; }
+  };
 
-  let USERS = [], FILTER = 'all';
+  let USERS = [], FILTER = 'all', timer = null;
   async function start() {
     let me;
     try { me = await api({ action: 'me' }); } catch { return; }
-    $('loginBox').classList.add('hidden'); $('panel').classList.remove('hidden'); $('logoutBtn').classList.remove('hidden');
-    $('who').textContent = me.email;
+    $('loginBox').classList.add('hidden'); $('panel').classList.remove('hidden'); $('logoutBtn').classList.remove('hidden'); $('settingsBtn').classList.remove('hidden');
+    $('who').textContent = 'Admin: ' + me.user;
     if (me.env === 'test') { $('testBar').classList.remove('hidden'); document.title = 'Padma TEST – Admin'; }
     $('stDrive').innerHTML = me.drive.connected ? '✔ Connected' : '<span style="color:#b91c1c">Not connected</span>';
-    $('stDriveS').textContent = me.drive.connected ? `${me.drive.email} · folder "${me.root}"` : 'Sign out and sign in again, and tick the Google Drive box.';
+    $('stDriveS').textContent = me.drive.connected ? `${me.drive.email} · folder "${me.root}"` : 'Backups stay on each computer until you connect.';
+    $('driveBtn').textContent = me.drive.connected ? 'Connect a different Google Drive' : 'Connect Google Drive';
     $('stScan').innerHTML = me.gemini ? '✔ Ready' : '<span style="color:#b91c1c">No key</span>';
     $('stScanS').textContent = me.gemini ? 'Gemini (free tier)' : 'GEMINI_API_KEY missing in Vercel';
     await refresh();
-    setInterval(() => { if (!document.hidden && $('viewer').classList.contains('hidden')) refresh().catch(() => {}); }, 30000);
+    if (!timer) timer = setInterval(() => { if (!document.hidden && $('viewer').classList.contains('hidden')) refresh().catch(() => {}); }, 30000);
   }
   async function refresh() {
     const j = await api({ action: 'list' });
     USERS = j.users;
     const total = USERS.reduce((a, u) => a + u.driveBytes, 0);
     $('stUsers').textContent = USERS.length;
-    $('stUsersS').textContent = `${USERS.filter((u) => u.frozen).length} frozen · ${USERS.filter((u) => !u.onboarded).length} not set up`;
+    $('stUsersS').textContent = `${USERS.filter((u) => u.frozen).length} frozen · ${USERS.filter((u) => u.neverLoggedIn).length} never logged in`;
     $('stOnline').textContent = USERS.filter((u) => u.online && !u.frozen).length;
     $('stStorage').textContent = size(total);
     $('stFiles').textContent = USERS.reduce((a, u) => a + u.driveFiles, 0) + ' files in Drive';
@@ -62,24 +101,22 @@
   }
   function status(u) {
     if (u.frozen) return '<span class="pill frz">❄ Frozen</span>';
-    if (!u.onboarded) return '<span class="pill wait">Setting up</span>';
+    if (u.neverLoggedIn) return '<span class="pill wait">Never logged in</span>';
     return u.online ? '<span class="pill on">● Online</span>' : '<span class="pill off">Offline</span>';
   }
   function render() {
     const q = $('q').value.trim().toLowerCase();
-    const list = USERS.filter((u) => (!q || [u.profile, u.email, u.gname].join(' ').toLowerCase().includes(q))
-      && (FILTER === 'all' || (FILTER === 'online' && u.online && !u.frozen) || (FILTER === 'frozen' && u.frozen) || (FILTER === 'setup' && !u.onboarded)));
+    const list = USERS.filter((u) => (!q || [u.profile, u.username].join(' ').toLowerCase().includes(q))
+      && (FILTER === 'all' || (FILTER === 'online' && u.online && !u.frozen) || (FILTER === 'frozen' && u.frozen) || (FILTER === 'setup' && u.neverLoggedIn)));
     $('none').classList.toggle('hidden', list.length > 0);
     $('pins').innerHTML = list.map((u) => {
-      const name = u.profile || u.gname || '(no profile name yet)';
-      const logo = u.gpicture ? `<img class="logo" src="${esc(u.gpicture.replace(/=s\d+-c$/, '=s256-c'))}" alt="" referrerpolicy="no-referrer">` : `<div class="initial">${esc((name || u.email || '?')[0].toUpperCase())}</div>`;
-      const avatar = '';
+      const name = u.profile || u.username;
       const folder = u.folderId ? `<a class="btn" href="https://drive.google.com/drive/folders/${esc(u.folderId)}" target="_blank" rel="noopener" title="${esc(u.folderName)}">📁 Drive folder</a>` : '';
       return `<div class="pin ${u.frozen ? 'frozen' : ''}" data-sub="${esc(u.sub)}">
-        <div class="cover"><span class="status">${status(u)}</span>${avatar}${logo}</div>
+        <div class="cover"><span class="status">${status(u)}</span><div class="initial">${esc(name[0].toUpperCase())}</div></div>
         <div class="body">
           <h3>${esc(name)}</h3>
-          <div class="who">${esc(u.email)}${u.gname && u.gname !== name ? ' · Google name: ' + esc(u.gname) : ''}</div>
+          <div class="who">Username: <b>${esc(u.username)}</b></div>
           <div class="facts">
             <div>Last active<b>${esc(ago(u.lastSeen))}</b></div>
             <div>Students<b>${u.students}</b></div>
@@ -88,10 +125,12 @@
             <div>Last backup<b>${esc(ago(u.lastBackup))}</b></div>
             <div>App<b>${esc(u.version || '–')}</b></div>
           </div>
-          <div class="muted" style="margin-bottom:10px">${esc(u.device || '')}${u.scans ? ' · ' + u.scans + ' scans' : ''}${u.createdAt ? ' · joined ' + esc(new Date(u.createdAt).toLocaleDateString()) : ''}</div>
+          <div class="muted" style="margin-bottom:10px">${esc(u.device || '')}${u.scans ? ' · ' + u.scans + ' scans' : ''}${u.createdAt ? ' · added ' + esc(new Date(u.createdAt).toLocaleDateString()) : ''}</div>
           <div class="acts">
             <button class="primary" data-a="records">📖 View records</button>
             ${folder}
+            <button data-a="resetpw">🔑 New password</button>
+            <button data-a="rename">✎ Rename</button>
             ${u.frozen ? '<button class="ice" data-a="unfreeze">Unfreeze</button>' : '<button class="ice" data-a="freeze">❄ Freeze</button>'}
             <button class="danger" data-a="delete">Remove</button>
           </div>
@@ -99,19 +138,41 @@
     }).join('');
   }
 
+  $('addBtn').onclick = async () => {
+    const v = await ask('Add a person', 'Give them this username and password. They log in with it in the app. Each person gets their own profile and their own backup folder.', [
+      { id: 'profile', label: 'Name (shown in the admin panel)' }, { id: 'username', label: 'Username (no spaces, e.g. ram or ram.k)' }, { id: 'password', label: 'Password (at least 6 characters)', type: 'text' },
+    ], 'Add person', (x) => api({ action: 'create', profile: x.profile, username: x.username, password: x.password }));
+    if (v) { toast(`Added. Username: ${v.username.trim().toLowerCase()}`); refresh(); }
+  };
   $('pins').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-a]'); if (!btn) return;
     const sub = btn.closest('.pin').dataset.sub; const u = USERS.find((x) => x.sub === sub); const a = btn.dataset.a;
-    const name = u.profile || u.email;
+    const name = u.profile || u.username;
     try {
       if (a === 'records') return openViewer(u);
-      if (a === 'freeze' && !(await confirmBox('Freeze ' + name + '?', 'The app on their computers locks at the next check (within about 2 minutes when online). Their data stays on their computers. You can unfreeze any time.', 'Freeze'))) return;
-      if (a === 'delete' && !(await confirmBox('Remove ' + name + '?', 'Their account is removed and the app goes back to “Sign in with Google”. The data on their computer and the backup files in your Google Drive are <b>not</b> deleted. If they sign in again they start as a new profile.', 'Remove', true))) return;
+      if (a === 'resetpw') {
+        const v = await ask('New password for ' + name, 'They will be logged out on every computer and must log in with the new password (needs internet).', [{ id: 'password', label: 'New password (at least 6 characters)', type: 'text' }], 'Set password', (x) => api({ action: 'resetpw', sub, password: x.password }));
+        if (v) toast('New password set.');
+        return;
+      }
+      if (a === 'rename') {
+        const v = await ask('Rename ' + name, '', [{ id: 'profile', label: 'Name', value: u.profile }], 'Save', (x) => api({ action: 'rename', sub, profile: x.profile }));
+        if (v) { toast('Renamed.'); refresh(); }
+        return;
+      }
+      if (a === 'freeze' && !(await dialog('Freeze ' + name + '?', 'The app on their computers locks at the next check (within about 2 minutes when online). Their data stays on their computers. You can unfreeze any time.', [], 'Freeze'))) return;
+      if (a === 'delete' && !(await dialog('Remove ' + name + '?', 'Their username stops working and the app goes back to the login screen. The data on their computer and the backup files in your Google Drive are <b>not</b> deleted.', [], 'Remove', true))) return;
       await api({ action: a, sub });
       toast({ freeze: 'Frozen.', unfreeze: 'Unfrozen.', delete: 'Removed.' }[a]);
       await refresh();
     } catch (err) { toast(err.message, true); }
   });
+  $('settingsBtn').onclick = async () => {
+    const v = await ask('Change the admin login', 'Enter your current password, then the new username and password.', [
+      { id: 'old', label: 'Current password', type: 'password' }, { id: 'username', label: 'Username', value: ($('who').textContent || '').replace('Admin: ', '') }, { id: 'password', label: 'New password (at least 6 characters)', type: 'password' },
+    ], 'Save', (x) => api({ action: 'adminpw', old: x.old, username: x.username, password: x.password }));
+    if (v) { toast('Admin login changed.'); start(); }
+  };
   $('q').addEventListener('input', render);
   $('filter').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; FILTER = b.dataset.f; document.querySelectorAll('#filter button').forEach((x) => x.classList.toggle('sel', x === b)); render(); });
   $('logoutBtn').onclick = async () => { await fetch('api/admin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"action":"logout"}' }); location.reload(); };
@@ -121,8 +182,8 @@
   let V = null;
   async function openViewer(u) {
     $('viewer').classList.remove('hidden'); document.body.style.overflow = 'hidden';
-    $('vLogo').src = u.gpicture || 'assets/logo.png';
-    $('vName').textContent = u.profile || u.gname || u.email; $('vSub').textContent = u.email;
+    $('vLogo').src = 'assets/logo.png';
+    $('vName').textContent = u.profile || u.username; $('vSub').textContent = 'Username: ' + u.username;
     $('vBody').innerHTML = '<div class="empty">Loading the latest backup from Google Drive…</div>';
     $('vStats').innerHTML = ''; $('vSections').innerHTML = ''; $('vMonth').innerHTML = ''; $('vWhen').textContent = '';
     try {
@@ -183,7 +244,6 @@
   $('vMonth').onchange = () => { if (V) { V.ym = $('vMonth').value; drawViewer(); } };
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('vClose').click(); });
 
-  const err = new URLSearchParams(location.search).get('error');
-  if (err) $('loginMsg').textContent = err;
+  if (new URLSearchParams(location.search).get('drive') === 'connected') { toast('Google Drive connected.'); history.replaceState(null, '', location.pathname); }
   start();
 })();

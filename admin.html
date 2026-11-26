@@ -55,6 +55,8 @@
   .frz { background: #e0f2fe; color: #075985; } .wait { background: #fef3c7; color: #92400e; }
   .muted { color: var(--muted); font-size: 12px; }
   .login { max-width: 440px; margin: 12vh auto; text-align: center; padding: 32px; }
+  .inp { display:block; width:100%; font:inherit; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; margin-top:4px; color:#0f172a; }
+  .modal label { display:block; margin-bottom:10px; }
   .toast { position: fixed; right: 20px; bottom: 20px; background: #0f172a; color: #fff; padding: 10px 14px; border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 420px; z-index: 50; }
   .toast.show { opacity: 1; } .toast.err { background: #b91c1c; }
   .modal-back { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: flex; align-items: center; justify-content: center; z-index: 30; }
@@ -79,16 +81,21 @@
 <div id="testBar" class="testbar hidden">TEST COPY — test users and test data only (Drive folder "Padma Hostel Finance – TEST")</div>
 <header>
   <div class="brand"><img src="assets/logo.png" alt=""><div>Padma Hostel Finance – Admin<small>Users, records, backups and access</small></div></div>
-  <div style="display:flex;gap:10px;align-items:center"><span id="who" class="muted"></span><button id="logoutBtn" class="hidden">Sign out</button></div>
+  <div style="display:flex;gap:10px;align-items:center"><span id="who" class="muted"></span><button id="settingsBtn" class="hidden">⚙ Settings</button><button id="logoutBtn" class="hidden">Log out</button></div>
 </header>
 
 <main>
   <div id="loginBox" class="card login hidden">
     <img src="assets/logo.png" alt="" style="width:64px;height:64px;border-radius:16px">
-    <h2>Admin sign-in</h2>
-    <p class="muted">Only the admin Gmail can open this panel. Signing in also lets the app keep every user's backup in your Google Drive.</p>
-    <a class="btn primary" href="api/auth?kind=admin">Sign in with Google</a>
-    <p id="loginMsg" class="muted"></p>
+    <h2 id="loginTitle">Admin login</h2>
+    <p id="loginHint" class="muted">Only the admin can open this panel.</p>
+    <form id="loginForm" style="text-align:left;display:grid;gap:10px;margin-top:14px">
+      <label class="muted">Username<input id="aUser" autocomplete="username" class="inp"></label>
+      <label class="muted">Password<input id="aPass" type="password" autocomplete="current-password" class="inp"></label>
+      <label class="muted hidden" id="aPass2Wrap">Type the password again<input id="aPass2" type="password" autocomplete="new-password" class="inp"></label>
+      <button class="primary" id="loginBtn" type="submit" style="padding:10px">Log in</button>
+    </form>
+    <p id="loginMsg" style="color:#b91c1c;font-size:13px;min-height:18px"></p>
   </div>
 
   <div id="panel" class="hidden">
@@ -96,16 +103,17 @@
       <div class="card"><div class="k">Users</div><div class="v" id="stUsers">–</div><div class="s" id="stUsersS"></div></div>
       <div class="card"><div class="k">Online now</div><div class="v" id="stOnline">–</div><div class="s">active in the last 3 minutes</div></div>
       <div class="card"><div class="k">Drive storage used</div><div class="v" id="stStorage">–</div><div class="s" id="stFiles"></div></div>
-      <div class="card"><div class="k">Google Drive</div><div class="v" id="stDrive" style="font-size:16px">–</div><div class="s" id="stDriveS"></div></div>
+      <div class="card"><div class="k">Google Drive</div><div class="v" id="stDrive" style="font-size:16px">–</div><div class="s" id="stDriveS"></div><div style="margin-top:8px"><a class="btn" id="driveBtn" href="api/auth?kind=drive">Connect Google Drive</a></div></div>
       <div class="card"><div class="k">Form scanner</div><div class="v" id="stScan" style="font-size:16px">–</div><div class="s" id="stScanS"></div></div>
     </div>
     <div class="toolbar">
-      <input id="q" placeholder="Search name or Gmail…" autocomplete="off">
-      <div class="seg" id="filter"><button data-f="all" class="sel">All</button> <button data-f="online">Online</button> <button data-f="frozen">Frozen</button> <button data-f="setup">Not set up</button></div>
+      <button class="primary" id="addBtn">＋ Add person</button>
+      <input id="q" placeholder="Search name or username…" autocomplete="off">
+      <div class="seg" id="filter"><button data-f="all" class="sel">All</button> <button data-f="online">Online</button> <button data-f="frozen">Frozen</button> <button data-f="setup">Never logged in</button></div>
       <span class="muted" id="updated"></span>
     </div>
     <div id="pins" class="pins"></div>
-    <div id="none" class="empty hidden">No users yet. When someone opens the app and signs in with Google, they appear here.</div>
+    <div id="none" class="empty hidden">No people yet. Press “＋ Add person” to make a username and password for someone.</div>
   </div>
 </main>
 

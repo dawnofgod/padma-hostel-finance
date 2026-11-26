@@ -3,7 +3,7 @@
 // or GitHub.
 //
 // Needs GEMINI_API_KEY in Vercel (Project → Settings → Environment Variables), from https://aistudio.google.com/apikey.
-// Only signed-in, not-frozen accounts can scan (they send their device token).
+// Only logged-in, not-frozen accounts can scan (they send their device token).
 // Optional: GEMINI_MODEL – to force one model (otherwise the list below is tried in order).
 
 const L = require('./_lib');

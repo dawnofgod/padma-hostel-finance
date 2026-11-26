@@ -125,81 +125,34 @@ async function doSave(web) {
   btn.disabled = false; $('webLabel').textContent = '⬇ Backup file'; updateSaveUi();
 }
 
-// ---------- first start & login ----------
-// Sign in with Google → profile name → username + password → app. Each person has their own profile.
-let setupMode = false, ACC = {};
-const ob = { profile: '' };
+// ---------- login ----------
+// Staff log in with the username + password the admin made for them (first time online, then also offline).
+let ACC = {};
 const showErr = (m) => { const e = $('loginErr'); e.textContent = m || ''; e.classList.toggle('hidden', !m); };
 function step(id) {
   document.querySelectorAll('.gate-step').forEach((el) => el.classList.toggle('hidden', el.id !== 'step' + id));
   showErr('');
-  const f = { Profile: 'obProfile', Login: 'loginUser' }[id];
-  if (f) setTimeout(() => $(f).focus(), 30);
+  if (id === 'Login') setTimeout(() => $('loginUser').focus(), 30);
 }
-function brandGate() { /* Padma branding is fixed */ }
 async function prepareLogin() {
   P.account.env().then((env) => { if (env === 'test') { $('envBadge').classList.remove('hidden'); document.title = 'Padma Hostel Finance TEST'; } });
-  if (new URLSearchParams(location.search).has('signedin')) {
-    history.replaceState(null, '', location.pathname);
-    try { await P.account.claim(); } catch (e) { step('Signin'); showErr(e.message); return; }
-  }
   ACC = await P.account.info();
-  brandGate(ACC);
-  if (!ACC.signedIn) { step('Signin'); return; }
-  if (!ACC.onboarded) {
-    ob.profile = ob.profile || ACC.gname || '';
-    $('obProfile').value = ob.profile;
-    step('Profile'); return;
-  }
-  setupMode = await P.auth.needsSetup();
-  if (setupMode) {
-    $('loginStepNo').classList.remove('hidden');
-    $('loginNote').innerHTML = '<b>Last step:</b> choose a username and password for this app on this computer. You will use them every time you open it (also without internet).';
-    $('loginConfirmWrap').classList.remove('hidden');
-    $('loginBtn').textContent = 'Create login & start →';
-    $('restoreWrap').classList.toggle('hidden', !ACC.driveReady);
-  } else {
-    $('loginNote').innerHTML = 'Signed in as <b>' + esc(ACC.profile || ACC.email) + '</b>. Enter your username and password.';
-  }
+  if (ACC.username) $('loginUser').value = ACC.username;
   step('Login');
 }
-async function obNext(which) {
-  if (which === 'profile') {
-    ob.profile = $('obProfile').value.trim();
-    if (!ob.profile) return showErr('Please enter your profile name.');
-    try { await P.account.saveProfile({ hostel: 'Padma Hostel', profile: ob.profile, logo: '', sections: null }); } catch (e) { return showErr(e.message); }
-    return prepareLogin();
-  }
-}
-document.querySelectorAll('[data-next]').forEach((b) => { b.onclick = () => obNext(b.dataset.next); });
-$('obProfile').addEventListener('keydown', (e) => { if (e.key === 'Enter') obNext('profile'); });
-$('googleBtn').onclick = () => { if (!navigator.onLine) return showErr('Signing in needs internet the first time.'); P.account.signIn(); };
-$('restoreDriveBtn').onclick = async () => {
-  const m = $('restoreMsg'); m.textContent = ' Getting the backup…';
-  try { const r = await P.restoreFromDrive(); m.textContent = ` ✔ Done: ${r.students} students, ${r.records} records (backup from ${new Date(r.modifiedTime).toLocaleString()}). Now choose the username and password.`; }
-  catch (e) { m.textContent = ' ' + e.message; }
-};
 async function login() {
-  let r;
-  if (setupMode) {
-    if ($('loginPass').value !== $('loginPass2').value) return showErr('The two passwords are not the same.');
-    r = await P.auth.setup($('loginUser').value.trim(), $('loginPass').value);
-  } else {
-    r = await P.auth.login($('loginUser').value.trim(), $('loginPass').value);
-  }
-  if (!r.ok) return showErr(r.error || 'Invalid credentials');
-  token = r.token; INFO.fallback = r.fallback;
-  // the sections chosen while setting up go into the hostel's data once
-  let d = await P.load(token);
-  const acc = await P.account.info();
-  if (acc.sections && !d.state.settings.sectionsSet) {
-    await P.setSections(token, { ...acc.sections });
-    d = await P.load(token);
-  }
-  S = d.state; INFO.folder = d.folder; INFO.dbFile = d.dbFile; STATUS = d.status;
-  ACC = acc;
-  $('loginScreen').classList.add('hidden'); $('app').classList.remove('hidden');
-  initApp();
+  $('loginBtn').disabled = true;
+  try {
+    const r = await P.account.login($('loginUser').value.trim(), $('loginPass').value);
+    if (!r.ok) return showErr(r.error || 'Wrong username or password.');
+    token = r.token; INFO.fallback = false;
+    const d = await P.load(token);
+    S = d.state; INFO.folder = d.folder; INFO.dbFile = d.dbFile; STATUS = d.status;
+    ACC = await P.account.info();
+    $('loginPass').value = '';
+    $('loginScreen').classList.add('hidden'); $('app').classList.remove('hidden');
+    initApp();
+  } finally { $('loginBtn').disabled = false; }
 }
 function applyBranding() {
   $('hdrSub').textContent = ACC.env === 'test' ? 'Finance Console · TEST' : 'Finance Console';
@@ -630,15 +583,15 @@ function renderSettings() {
     <div class="text-xs text-slate-500">Download one file with all data, or restore from a backup. You can also restore a backup file from Padma Hostel Finance or the old desktop app.</div>
     <div class="flex flex-wrap gap-2 mt-3"><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="bk-download">⬇ Download backup file</button><button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="bk-restore">⬆ Restore from backup…</button><input type="file" id="bkFile" accept=".json,application/json" class="hidden"></div>
     <div class="text-xs text-slate-400 mt-4">App version ${esc(P.version)}</div></div>
-  <div class="card p-5"><div class="font-bold mb-3">My profile</div>
-    <div class="flex items-center gap-3 mb-4">${ACC.gpicture ? `<img src="${esc(ACC.gpicture)}" referrerpolicy="no-referrer" class="w-12 h-12 rounded-full" alt="">` : ''}<div class="text-xs text-slate-500">Google account: <b>${esc(ACC.email)}</b><br>Your data and backups are kept in your own folder.</div></div>
-    ${field('Profile name (shown to the admin)', `<input class="field-input" id="pfProfile" maxlength="60" value="${esc(ACC.profile)}">`)}
-    <button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="pf-save">Save profile</button></div>
-  <div class="card p-5"><div class="font-bold mb-3">Login (change username / password)</div>${field('Current password', '<input type="password" class="field-input" id="acOld">')}${field('New username', '<input class="field-input" id="acUser">')}${field('New password (min 6 characters)', '<input type="password" class="field-input" id="acNew">')}<button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="acc-save">Update login</button>${INFO.fallback ? '<div class="text-xs text-amber-700 mt-2">Default login admin/admin is active — please change it.</div>' : ''}</div></div>`;
+  <div class="card p-5"><div class="font-bold mb-3">My account</div>
+    <div class="text-sm mb-1">Name: <b>${esc(ACC.profile)}</b></div><div class="text-sm mb-3">Username: <b>${esc(ACC.username)}</b></div>
+    <div class="text-xs text-slate-500 mb-4">Your name and username are set by the admin. Your data and backups are kept in your own folder.</div>
+    <button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="restore-drive">⤓ Bring my data from the Google Drive backup</button></div>
+  <div class="card p-5"><div class="font-bold mb-3">Change my password</div>${field('Current password', '<input type="password" class="field-input" id="acOld">')}${field('New password (min 6 characters)', '<input type="password" class="field-input" id="acNew">')}<button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="acc-save">Change password</button><div class="text-xs text-slate-500 mt-2">Needs internet. If you forget your password, the admin can set a new one.</div></div></div>`;
   const gdRender = (g) => {
     const e = $('gdInfo'); if (!e) return;
     const when = (t) => (t ? new Date(t).toLocaleString() : 'not yet');
-    e.innerHTML = 'Signed in as <b>' + esc(g.email) + '</b>' + (g.pending ? ' · <span class="text-amber-700">profile changes will be sent when online</span>' : '') + '<br>' + (g.driveReady ? 'Google Drive backup: <b>ready</b>' + (g.folderName ? ' · folder <b>' + esc(g.folderName) + '</b>' : '') + ' · last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '') : '<span class="text-amber-700">Google Drive backup: not ready yet (the admin has to connect it). Your data is safe on this computer.</span>');
+    e.innerHTML = 'Logged in as <b>' + esc(g.username) + '</b><br>' + (g.driveReady ? 'Google Drive backup: <b>ready</b>' + (g.folderName ? ' · folder <b>' + esc(g.folderName) + '</b>' : '') + ' · last full upload: ' + esc(when(g.lastSync)) + (g.lastBackup ? ' · last automatic data backup: ' + esc(when(g.lastBackup)) : '') : '<span class="text-amber-700">Google Drive backup: not connected yet (the admin connects it in the admin panel). Your data is safe on this computer.</span>');
   };
   P.account.info().then((g) => { gdRender(g); if (navigator.onLine) P.account.ping().then(gdRender).catch(() => {}); }).catch(() => {});
   P.backup.folderInfo(token).then((f) => {
@@ -687,17 +640,16 @@ document.addEventListener('click', async (e) => {
     else if (a === 'set-save') { [1, 2, 3, 4].forEach((n) => { S.settings.bedPrices[n] = num($('bp' + n).value); }); S.settings.admission = { admissionFee: num($('sAdm').value), deposit: num($('sDep').value), formFee: num($('sForm').value) }; await persist(); $('admDeposit').dataset.touched = ''; toast('Settings saved.'); }
     else if (a === 'open-folder') { const name = await P.backup.chooseFolder(token); toast('Save folder set: ' + name + '. Press 💾 Save to write the reports there.'); renderSettings(); }
     else if (a === 'cl-check') { if (!navigator.onLine) throw new Error('No internet right now.'); const g = await P.account.ping(); toast(g.driveReady ? 'Connected. Google Drive backup is ready.' : 'Connected. Google Drive backup is not ready yet.'); renderSettings(); }
-    else if (a === 'pf-save') {
-      const profile = $('pfProfile').value.trim();
-      if (!profile) throw new Error('Profile name cannot be empty.');
-      ACC = await P.account.saveProfile({ hostel: 'Padma Hostel', profile, logo: '', sections: null });
-      applyBranding(); setTab('settings');
-      toast(ACC.pending ? 'Saved. It will be sent when online.' : 'Profile saved.');
-    }
     else if (a === 'bk-download') { await P.backup.download(token); toast('Backup file downloaded.'); }
     else if (a === 'bk-restore') { const fi = $('bkFile'); fi.value = ''; fi.onchange = () => restoreFrom(fi.files[0]); fi.click(); }
     else if (a === 'regen') { toast('Rebuilding all PDFs…'); STATUS = await P.reports.regenerate(token); updateSaveUi(); toast(STATUS.errors ? STATUS.message : 'All PDFs rebuilt.', !!STATUS.errors); }
-    else if (a === 'acc-save') { const r = await P.auth.change(token, $('acOld').value, $('acUser').value.trim(), $('acNew').value); toast(r === true || (r && r.ok !== false) ? 'Login updated.' : (r.error || 'Could not update.'), r && r.ok === false); }
+    else if (a === 'acc-save') { await P.account.changePassword(token, $('acOld').value, $('acNew').value); $('acOld').value = ''; $('acNew').value = ''; toast('Password changed.'); }
+    else if (a === 'restore-drive') {
+      if (!navigator.onLine) throw new Error('This needs internet.');
+      if (!(await confirmBox('Bring data from Google Drive?', 'Replace the data on this computer with your latest Google Drive backup? Changes made here after that backup will be lost.', 'Replace'))) return;
+      const r = await P.restoreFromDrive(token); const d = await P.load(token); S = d.state; STATUS = await P.reports.status(token);
+      applyBranding(); setBranch(branch); setTab('settings'); toast(`Done: ${r.students} students, ${r.records} records.`);
+    }
   } catch (err) { toast(err.message || String(err), true); }
 });
 document.addEventListener('change', (e) => {
@@ -753,11 +705,11 @@ function frozenLock(on) {
 P.account.onFrozen(frozenLock);
 P.account.isFrozen().then((f) => { frozenLock(f); }).catch(() => {});
 P.account.ping().catch(() => {});
-// removed by the admin: back to "Sign in with Google" (the data stays on this computer)
+// removed by the admin or password reset: back to the login screen (the data stays on this computer)
 P.account.onRemoved((msg) => { alertRemoved(msg); });
 function alertRemoved(msg) {
   if (!$('app').classList.contains('hidden')) { toast(msg || 'This account was removed by the admin.', true); setTimeout(() => location.reload(), 4000); }
   else prepareLogin().then(() => showErr(msg || ''));
 }
-['loginUser', 'loginPass', 'loginPass2'].forEach((i) => $(i).addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); }));
+['loginUser', 'loginPass'].forEach((i) => $(i).addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); }));
 $('loginUser').focus();

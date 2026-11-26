@@ -4,7 +4,6 @@
 //   KV_REST_API_URL / KV_REST_API_TOKEN  (or UPSTASH_REDIS_REST_URL / _TOKEN) – the free Upstash Redis database
 //   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET – Google OAuth web client
 //   GEMINI_API_KEY  – for the form scanner
-//   ADMIN_EMAIL     – optional; the only Gmail allowed into the admin panel (default below)
 //   APP_ENV=test    – set ONLY for the test copy (Preview deployments). Test data then lives under other
 //                     database keys and in the Drive folder "Padma Hostel Finance – TEST", so it never mixes with real data.
 const crypto = require('crypto');
@@ -12,9 +11,7 @@ const crypto = require('crypto');
 const ENV = process.env.APP_ENV === 'test' ? 'test' : 'live';
 const PREFIX = ENV === 'test' ? 'padma-test:' : 'padma:';
 const ROOT_NAME = ENV === 'test' ? 'Padma Hostel Finance – TEST' : 'Padma Hostel Finance';
-const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'arunpoudel9957@gmail.com').toLowerCase();
-const ADMIN_SCOPE = 'https://www.googleapis.com/auth/drive.file openid email profile';
-const USER_SCOPE = 'openid email profile';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file openid email';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER = 'application/vnd.google-apps.folder';
@@ -75,7 +72,7 @@ function googleAuthUrl(req, kind, extra = {}) {
   const st = `${kind}.${ts}`;
   return 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID, redirect_uri: redirectOf(req), response_type: 'code',
-    scope: kind === 'admin' ? ADMIN_SCOPE : USER_SCOPE, state: st + '.' + hmac(st), ...extra,
+    scope: DRIVE_SCOPE, state: st + '.' + hmac(st), ...extra,
   });
 }
 function checkState(state) {
@@ -87,14 +84,14 @@ function checkState(state) {
 let cached = { token: null, exp: 0, rt: null };
 async function accessToken() {
   const rt = (await redis('HGET', K('owner'), 'refresh')) || null;
-  if (!rt) { const e = new Error('Google Drive backup is not connected yet (the admin must sign in to the admin panel once).'); e.status = 409; throw e; }
+  if (!rt) { const e = new Error('Google Drive backup is not connected yet (the admin connects it in the admin panel).'); e.status = 409; throw e; }
   if (cached.token && cached.rt === rt && Date.now() < cached.exp - 60000) return cached.token;
   const r = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, refresh_token: rt, grant_type: 'refresh_token' }),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error('Google Drive permission expired (' + (j.error || r.status) + '). The admin must sign in to the admin panel again.'); e.status = 409; throw e; }
+  if (!r.ok) { const e = new Error('Google Drive permission expired (' + (j.error || r.status) + '). The admin must press "Connect Google Drive" in the admin panel again.'); e.status = 409; throw e; }
   cached = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000, rt };
   return cached.token;
 }
@@ -140,13 +137,13 @@ function cleanPath(p) {
   for (const s of parts) if (!s || s === '.' || s === '..' || s.length > 150 || /[\u0000-\u001f]/.test(s)) return null;
   return parts;
 }
-const folderNameOf = (u) => `${(u.profile || u.gname || 'User').replace(/[\\/:*?"<>|]/g, ' ').trim().slice(0, 60)} (${u.email})`;
+const folderNameOf = (u) => `${(u.profile || u.username || 'User').replace(/[\\/:*?"<>|]/g, ' ').trim().slice(0, 60)} (${u.username})`;
 
 // The user's own Drive folder inside "Padma Hostel Finance" in the owner's Drive; made the first time it is needed.
 async function userFolder(u) {
   if (u.folderId) return u.folderId;
   const root = await redis('HGET', K('owner'), 'root');
-  if (!root) { const e = new Error('Google Drive backup is not connected yet (the admin must sign in to the admin panel once).'); e.status = 409; throw e; }
+  if (!root) { const e = new Error('Google Drive backup is not connected yet (the admin connects it in the admin panel).'); e.status = 409; throw e; }
   const name = folderNameOf(u);
   const folderId = await findOrMakeFolder(name, root);
   await hset(K('user:' + u.sub), { folderId, folderName: name });
@@ -167,14 +164,20 @@ async function readBackup(u) {
 }
 
 // ---------------- users ----------------
-// user:<sub> hash: email, gname, gpicture, hostel, profile, logo (small data URL), sections (JSON), onboarded,
+// user:<id> hash: username, pw (scrypt hash), profile, hostel, onboarded,
 //   createdAt, lastSeen, version, dataBytes, records, students, device, frozen, folderId, folderName, lastBackup
 async function userByToken(token) {
   if (!token || String(token).length < 20) return null;
   const sub = await redis('GET', K('token:' + sha(token)));
   if (!sub) return null;
   const u = await hgetall(K('user:' + sub));
-  return u && u.email ? { sub, ...u } : null;
+  return u && u.username ? { sub, ...u } : null;
+}
+// sign out every computer of this user (after a password reset)
+async function dropTokens(sub) {
+  const toks = (await redis('SMEMBERS', K('user:' + sub + ':tokens'))) || [];
+  for (const t of toks) await redis('DEL', K('token:' + t));
+  await redis('DEL', K('user:' + sub + ':tokens'));
 }
 async function newDeviceToken(sub, device) {
   const token = rand(24);
@@ -186,9 +189,29 @@ async function newDeviceToken(sub, device) {
 async function deleteUser(sub) {
   const toks = (await redis('SMEMBERS', K('user:' + sub + ':tokens'))) || [];
   for (const t of toks) await redis('DEL', K('token:' + t));
+  const u = await hgetall(K('user:' + sub));
+  if (u.username) await redis('DEL', K('username:' + u.username));
   await redis('DEL', K('user:' + sub), K('user:' + sub + ':tokens'), K('user:' + sub + ':files'));
   await redis('SREM', K('users'), sub);
 }
+
+// ---------------- passwords ----------------
+function hashPw(pw) {
+  const salt = rand(16);
+  return `s1$${salt}$${crypto.scryptSync(String(pw), salt, 32, { N: 16384 }).toString('hex')}`;
+}
+function checkPw(pw, stored) {
+  const [v, salt, h] = String(stored || '').split('$');
+  if (v !== 's1' || !salt || !h) return false;
+  const x = crypto.scryptSync(String(pw), salt, 32, { N: 16384 });
+  const y = Buffer.from(h, 'hex');
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+const cleanUser = (u) => String(u || '').trim().toLowerCase();
+const validUser = (u) => /^[a-z0-9._-]{3,30}$/.test(u);
+// at most 10 wrong passwords per username in 15 minutes
+async function locked(name) { return (Number(await redis('GET', K('fail:' + name))) || 0) >= 10; }
+async function failed(name) { await redis('INCR', K('fail:' + name)); await redis('EXPIRE', K('fail:' + name), 900); }
 
 // ---------------- cookies ----------------
 function signed(name, obj, maxAge) {
@@ -203,8 +226,15 @@ function readSigned(req, name) {
   try { const o = JSON.parse(Buffer.from(v, 'base64url').toString()); return o.exp > Date.now() ? o : null; } catch { return null; }
 }
 const clearCookie = (name) => `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
-const adminCookie = (email) => signed('padma_admin', { email, exp: Date.now() + 12 * 3600e3 }, 12 * 3600);
-function adminFrom(req) { const o = readSigned(req, 'padma_admin'); return o && String(o.email).toLowerCase() === ADMIN_EMAIL ? o : null; }
+// The admin logs in with the username + password made on the first visit to the admin panel. Changing the
+// password signs out every admin session (the cookie carries the password version).
+const adminCookie = (a) => signed('padma_admin', { user: a.user, v: a.v || '1', exp: Date.now() + 12 * 3600e3 }, 12 * 3600);
+async function adminFrom(req) {
+  const o = readSigned(req, 'padma_admin');
+  if (!o) return null;
+  const a = await hgetall(K('admin'));
+  return a.user && a.user === o.user && String(a.v || '1') === String(o.v) ? a : null;
+}
 
 function body(req) {
   if (req.body && typeof req.body === 'object') return req.body;
@@ -214,9 +244,10 @@ function body(req) {
 const fail = (res, e) => res.status(e.status && e.status >= 400 && e.status < 600 ? e.status : 502).json({ error: e.message || String(e) });
 
 module.exports = {
-  ENV, PREFIX, K, ROOT_NAME, ADMIN_EMAIL, API, UPLOAD, FOLDER, BACKUP_PATH, ONLINE_MS,
+  ENV, PREFIX, K, ROOT_NAME, API, UPLOAD, FOLDER, BACKUP_PATH, ONLINE_MS,
   sleep, sha, rand, hmac, originOf, redirectOf, dbReady, redis, hgetall, hset,
   exchangeCode, googleAuthUrl, checkState, accessToken, gapi, findChild, makeFolder, findOrMakeFolder, folderFor, cleanPath,
-  folderNameOf, userFolder, readBackup, userByToken, newDeviceToken, deleteUser,
+  folderNameOf, userFolder, readBackup, userByToken, newDeviceToken, dropTokens, deleteUser,
+  hashPw, checkPw, cleanUser, validUser, locked, failed,
   signed, readSigned, clearCookie, adminCookie, adminFrom, body, fail,
 };
