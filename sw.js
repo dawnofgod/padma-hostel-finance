@@ -2,7 +2,7 @@
 // To publish an update: change VERSION below (e.g. 3.0.1) and upload the changed files to GitHub.
 // Open copies of the app notice it and show "A new version of the app is ready – Update now".
 // Your records are NOT stored here; updates never touch them.
-const VERSION = '5.6.3';
+const VERSION = '5.7.0';
 const CACHE = 'padma-finance-' + VERSION;
 const FILES = [
   './',
