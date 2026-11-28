@@ -8,7 +8,7 @@
 
 const L = require('./_lib');
 
-const MODELS = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+const MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 const FIELDS = {
   formNo: 'Form No. printed/written at top left',
   applicationDate: 'the "Date:" at top right (date the form was filled)',
@@ -55,16 +55,25 @@ Extract what is written in each field. Rules:
 - Dates: give them exactly as written (e.g. "02/01/2004", "2080-05-12") and set dateCalendar.
 - If a value is hard to read, give your best reading and list the field name in "unsure".`;
 
-async function callGemini(model, key, mime, data) {
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+async function callGemini(model, key, mime, data, ms, think = true) {
+  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), ms);
+  const gen = { temperature: 0, responseMimeType: 'application/json', responseSchema: schema() };
+  if (think) gen.thinkingConfig = { thinkingLevel: 'low' }; // reading a form needs little reasoning; keeps it fast
+  let r;
+  try {
+    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: PROMPT }, { inline_data: { mime_type: mime, data } }] }],
-      generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema() },
+      generationConfig: gen,
     }),
+    signal: ctl.signal,
   });
+  } catch (e) { const err = new Error(e.name === 'AbortError' ? 'took too long' : e.message); err.status = e.name === 'AbortError' ? 504 : 502; throw err; }
+  finally { clearTimeout(timer); }
   const body = await r.json().catch(() => ({}));
+  if (!r.ok && think && r.status === 400 && /think/i.test(JSON.stringify(body))) return callGemini(model, key, mime, data, ms, false);
   if (!r.ok) { const e = new Error((body.error && body.error.message) || `Gemini error ${r.status}`); e.status = r.status; throw e; }
   const text = (((body.candidates || [])[0] || {}).content || {}).parts?.map((p) => p.text || '').join('') || '';
   return JSON.parse(text);
@@ -90,14 +99,16 @@ module.exports = async (req, res) => {
   for (const m of models) {
     // a busy model ("high demand") gets one more try after a short pause, then the next model is used
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (Date.now() - started > 45000) break; // stay inside Vercel's time limit
+      const left = 55000 - (Date.now() - started); // stay inside Vercel's 60-second limit
+      if (left < 8000) break;
       try {
-        const fields = await callGemini(m, key, mime, data);
+        const fields = await callGemini(m, key, mime, data, Math.min(25000, left));
         try { await L.hset(L.K('user:' + client.sub), { lastSeen: Date.now(), scans: (Number(client.scans) || 0) + 1 }); } catch { /* ignore */ }
         return res.status(200).json({ ok: true, model: m, fields });
       } catch (e) {
         last = e;
         if (e.status === 429) sawQuota = true;
+        if (e.status === 504) { sawBusy = true; break; } // too slow → next (faster) model
         if (BUSY.includes(e.status)) { sawBusy = true; if (attempt === 0) { await new Promise((r) => setTimeout(r, 2500)); continue; } }
         break;
       }
@@ -105,7 +116,7 @@ module.exports = async (req, res) => {
     // model missing for this key, its quota used up, or busy → try the next model; other errors stop here
     if (!last || ![400, 403, 404, 429, ...BUSY].includes(last.status)) break;
   }
-  if (sawBusy) return res.status(503).json({ error: 'Google\'s free scanner is very busy right now. Please wait a minute and press the scan button again.' });
+  if (sawBusy) return res.status(503).json({ error: 'Google\'s scanner was too slow or busy just now. Please press the scan button again (a clear, well-lit photo is read faster).' });
   if (sawQuota) return res.status(429).json({ error: 'The free Gemini limit is used up for now. Try again later (the daily limit resets at about 1:45 PM Nepal time).' });
   return res.status(502).json({ error: 'Could not read the form: ' + (last ? last.message : 'unknown error') });
 };
