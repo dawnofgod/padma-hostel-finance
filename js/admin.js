@@ -244,6 +244,32 @@
       const rows = [...b.records].sort((a, c) => String(c.admissionDate || '').localeCompare(String(a.admissionDate || '')));
       html = table([['Date (BS)'], ['Student'], ['Phone'], ['Room'], ['Joining bill', 'n']],
         rows.map((r) => `<tr><td>${esc(r.admissionDate)}</td><td>${esc(r.name)}</td><td>${esc(r.whatsapp || r.phone || '')}</td><td>${esc(r.roomLabel || '')} ${esc(r.roomNo || '')}</td><td class="n">${money((+r.admissionFee || 0) + (+r.deposit || 0) + (+r.formFee || 0) + (+r.bedFee || 0))}</td></tr>`), 'No admissions.');
+    } else if (V.tab === 'balance') {
+      // same rules as the user app's Balance Sheet, as of today
+      const B = { returned: ['green', '🟢 Returned'], held: ['blue', '🔵 Taken — holding'], 'return-now': ['orange', '🟠 Left — return now'], 'not-taken': ['red', '🔴 Not taken'], none: ['grey', '⚪ No deposit'], ok: ['teal', '🟩 All paid'], part: ['amber', '🟨 Part paid'], due: ['purple', '🟪 Fee due'] };
+      const bd = (k) => `<span class="bb bb-${B[k][0]}">${B[k][1]}</span>`;
+      const td = C.dates.today().bs; const cur = td.year + '-' + C.logic.pad(td.month);
+      const linkOf = (r) => { if (r.studentId) return r.studentId; const ref = String(r.ref || ''); if (ref.startsWith('adm:')) { const rec = b.records.find((x) => x.id === ref.slice(4)); return rec ? rec.studentId : ''; } return ''; };
+      const dep = []; const used = new Set();
+      for (const s of b.students) {
+        const ds = b.income.filter((r) => C.logic.isRefundable(r) && linkOf(r) === s.id); ds.forEach((r) => used.add(r.id));
+        const left = s.active !== '1';
+        if (ds.length) ds.forEach((r) => dep.push({ name: s.name, room: s.room, amt: +r.amount || 0, date: r.dateBS, ret: r.refundedOn || '', st: r.refundedOn ? 'returned' : left ? 'return-now' : 'held', stay: left ? 'Left ' + s.until : 'Staying' }));
+        else if (!left) { const rec = s.recordId ? b.records.find((x) => x.id === s.recordId) : null; const ex = rec ? +rec.deposit || 0 : +((V.data.settings && V.data.settings.admission) || {}).deposit || 0; dep.push({ name: s.name, room: s.room, amt: ex, date: '', ret: '', st: ex ? 'not-taken' : 'none', stay: 'Staying' }); }
+      }
+      b.income.filter((r) => C.logic.isRefundable(r) && !used.has(r.id)).forEach((r) => dep.push({ name: String(r.description || r.category).split(' — ')[0], room: '', amt: +r.amount || 0, date: r.dateBS, ret: r.refundedOn || '', st: r.refundedOn ? 'returned' : 'held', stay: '—' }));
+      const fee = new Map(); const since = b.students.map((x) => String(x.since || '')).filter((x) => /^\d{4}-\d{2}$/.test(x)).sort()[0];
+      if (since) { let [yy, mm] = since.split('-').map(Number); let g = 0; while (`${yy}-${C.logic.pad(mm)}` <= cur && g++ < 120) { const k = `${yy}-${C.logic.pad(mm)}`; C.logic.feeStatus(b, k).forEach((r) => { const d = r.status === 'unpaid' ? r.expected : r.due; if (!fee.has(r.s.id)) fee.set(r.s.id, { s: r.s, months: [], total: 0, part: true }); const f = fee.get(r.s.id); if (d > 0) { f.months.push(C.dates.MONTHS[mm - 1] + (r.status === 'part' ? ' (part)' : '')); f.total += d; if (r.status !== 'part') f.part = false; } }); mm += 1; if (mm > 12) { mm = 1; yy += 1; } } }
+      const ord = { 'return-now': 0, 'not-taken': 1, held: 2, returned: 3, none: 4 };
+      dep.sort((a, c) => ord[a.st] - ord[c.st] || String(a.name).localeCompare(String(c.name)));
+      const fl = [...fee.values()].sort((a, c) => c.total - a.total);
+      const pay = dep.filter((d) => d.st === 'held' || d.st === 'return-now').reduce((a, d) => a + d.amt, 0);
+      const rec = dep.filter((d) => d.st === 'not-taken').reduce((a, d) => a + d.amt, 0) + fl.reduce((a, f) => a + f.total, 0);
+      html = `<p style="margin:6px 0 10px"><b>Payable (deposits to give back):</b> ${money(pay)} &nbsp; · &nbsp; <b>Receivable (fees + deposits not taken):</b> ${money(rec)} &nbsp; · &nbsp; <b>Net:</b> ${money(rec - pay)} <span class="muted">— as of today</span></p>
+      <h3 style="margin:12px 0 6px;font-size:14px">1. Security deposits</h3>` +
+        table([['Student'], ['Room'], ['Stay'], ['Sign'], ['Deposit', 'n'], ['Taken on'], ['Returned on']], dep.map((d) => `<tr><td>${esc(d.name)}</td><td>${esc(d.room)}</td><td>${esc(d.stay)}</td><td>${bd(d.st)}</td><td class="n">${d.st === 'none' ? '—' : money(d.amt)}</td><td>${esc(d.date) || '—'}</td><td>${esc(d.ret) || '—'}</td></tr>`), 'No students.') +
+        `<h3 style="margin:16px 0 6px;font-size:14px">2. Monthly fees</h3>` +
+        table([['Student'], ['Room'], ['Sign'], ['Unpaid months'], ['Amount due', 'n']], fl.map((f) => `<tr><td>${esc(f.s.name)}</td><td>${esc(f.s.room)}</td><td>${bd(!f.total ? 'ok' : f.part ? 'part' : 'due')}</td><td>${esc(f.months.join(', ')) || '—'}</td><td class="n">${money(f.total)}</td></tr>`), 'No fees yet.');
     } else if (V.tab === 'rooms') {
       html = table([['Room'], ['Beds'], ['Occupied by']],
         b.rooms.map((r) => `<tr><td>${esc(r.label)}</td><td>${r.beds.length}</td><td>${r.beds.map((x) => (x.name ? esc(x.name) : '<span class="muted">empty</span>')).join(', ')}</td></tr>`), 'No rooms.');
