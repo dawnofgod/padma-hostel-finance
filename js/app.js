@@ -465,7 +465,7 @@ function bedModal(roomId, i) {
   $('bVac').onclick = async () => {
     $('modalRoot').innerHTML = '';
     if (!(await confirmBox('Vacate bed?', `${bed.name} leaves ${room.label}, Bed ${i + 1}. Their payment history stays.`, 'Vacate'))) return;
-    if (linked) { linked.active = '0'; linked.until = ym(nowBs().bs.str); }
+    if (linked) { linked.active = '0'; linked.until = ym(nowBs().bs.str); linked.lastBed = { roomId, i }; }
     room.beds[i] = { studentId: null, name: null, phone: null };
     await persist(); renderRooms(); toast('Bed vacated.');
   };
@@ -717,21 +717,65 @@ function renderStudents() {
   ${list.map((s, i) => `<tr><td>${i + 1}</td><td>${stuLink(branch, s.id, s.name)}</td><td>${esc(s.phone)}</td><td>${esc(s.room)}</td><td>${s.bed} Bed</td><td class="r">${money(s.fee)}</td><td>${esc(s.since)}</td><td>${s.active === '1' ? '<span class="tag tag-paid">Active</span>' : '<span class="tag tag-unpaid">Left ' + esc(s.until) + '</span>'}</td><td class="r"><span class="link" data-act="stu-edit" data-id="${esc(s.id)}">Edit</span> &nbsp; <span class="link" data-act="stu-toggle" data-id="${esc(s.id)}">${s.active === '1' ? 'Mark left' : 'Re-activate'}</span> &nbsp; <span class="link link-red" data-act="stu-del" data-id="${esc(s.id)}">Delete</span></td></tr>`).join('') || '<tr><td colspan="9" class="text-slate-500">No students. Admit one from the Admissions tab, or add manually.</td></tr>'}
   </tbody></table></div></div>`;
 }
+// ---- keeping Rooms in step with Students: a student's name and phone sit in their bed ----
+const EMPTY_BED = () => ({ studentId: null, name: null, phone: null });
+function bedOf(stuId, b = B()) { for (const r of b.rooms) { const i = r.beds.findIndex((x) => x.studentId === stuId); if (i >= 0) return { room: r, i }; } return null; }
+function vacateStudent(stuId, b = B()) {
+  const at = bedOf(stuId, b); if (!at) return null;
+  at.room.beds[at.i] = EMPTY_BED(); return { roomId: at.room.id, i: at.i };
+}
+function placeStudent(stu, roomId, i, b = B()) {
+  const r = b.rooms.find((x) => x.id === roomId); if (!r || !r.beds[i]) return false;
+  const cur = r.beds[i]; if (cur.name && cur.studentId !== stu.id) return false; // someone else is there
+  vacateStudent(stu.id, b);
+  r.beds[i] = { studentId: stu.id, name: stu.name, phone: stu.phone || '' };
+  stu.roomId = r.id; stu.room = r.number; stu.bedIndex = i;
+  return true;
+}
+function syncBed(stu, b = B()) { const at = bedOf(stu.id, b); if (at) at.room.beds[at.i] = { studentId: stu.id, name: stu.name, phone: stu.phone || '' }; }
+const freeBeds = (r, stuId) => r.beds.map((x, i) => ({ i, free: !x.name || x.studentId === stuId })).filter((x) => x.free).map((x) => x.i);
+
 function studentModal(id, pre) {
   const s = id ? B().students.find((x) => x.id === id) : (pre || {});
+  const at = id ? bedOf(id) : (pre && pre._bed ? { room: findRoom(pre._bed[0]), i: pre._bed[1] } : null);
   const bedOpts = (cur) => [1, 2, 3, 4].map((n) => `<option value="${n}" ${+cur === n ? 'selected' : ''}>${n} Bed — ${money(S.settings.bedPrices[n])}</option>`).join('');
-  modal({ title: id ? 'Edit student' : 'Add student', body: field('Student name', inp('name', s.name || '')) + field('Phone number', inp('phone', s.phone || '')) + field('Room no.', inp('room', s.room || '')) + field('Bed type (sets the fee)', `<select name="bed" class="field-input">${bedOpts(s.bed || 2)}</select>`) + field('Monthly fee (Rs.) — leave blank to use the bed rate', inp('fee', s.fee || '', 'type="number"')),
+  const roomOpts = `<option value="">— Not in a room —</option>` + B().rooms.map((r) => { const f = freeBeds(r, id).length; return `<option value="${esc(r.id)}" ${at && at.room.id === r.id ? 'selected' : ''} ${f ? '' : 'disabled'}>${esc(r.label)} — ${f ? f + ' free' : 'full'}</option>`; }).join('');
+  modal({ title: id ? 'Edit student' : 'Add student', body: field('Student name', inp('name', s.name || '')) + field('Phone number', inp('phone', s.phone || '')) +
+      `<div class="grid grid-cols-2 gap-3">${field('Room', `<select name="roomId" id="smRoom" class="field-input">${roomOpts}</select>`)}${field('Bed', `<select name="bedIdx" id="smBed" class="field-input"></select>`)}</div>` +
+      `<p class="text-[11px] text-slate-500 -mt-1 mb-3">The name and phone will show on this bed in Rooms.</p>` +
+      field('Bed type (sets the fee)', `<select name="bed" id="smBedType" class="field-input">${bedOpts(s.bed || 2)}</select>`) + field('Monthly fee (Rs.) — leave blank to use the bed rate', inp('fee', s.fee || '', 'type="number"')),
     onOk: async (v) => {
       if (!v.name.trim()) return 'Enter the student name.';
       const bed = +v.bed; const fee = num(v.fee) || S.settings.bedPrices[bed];
-      if (id) Object.assign(s, { name: v.name.trim(), phone: v.phone.trim(), room: v.room.trim(), bed, fee });
-      else {
-        const stu = { id: uid('STU'), name: v.name.trim(), phone: v.phone.trim(), room: v.room.trim(), bed, fee, active: '1', since: ym(nowBs().bs.str), until: '' };
-        B().students.push(stu);
-        if (pre && pre._bed) { const r = findRoom(pre._bed[0]); r.beds[pre._bed[1]] = { studentId: stu.id, name: stu.name, phone: stu.phone }; stu.roomId = r.id; }
-      }
-      await persist(); renderTab();
+      const room = v.roomId ? findRoom(v.roomId) : null;
+      if (room && v.bedIdx === '') return 'Choose a bed in that room.';
+      let stu;
+      if (id) { stu = s; Object.assign(stu, { name: v.name.trim(), phone: v.phone.trim(), bed, fee }); }
+      else { stu = { id: uid('STU'), name: v.name.trim(), phone: v.phone.trim(), room: '', bed, fee, active: '1', since: ym(nowBs().bs.str), until: '' }; B().students.push(stu); }
+      if (room) { if (!placeStudent(stu, room.id, +v.bedIdx)) return 'That bed is taken. Choose another bed.'; }
+      else { vacateStudent(stu.id); stu.roomId = ''; stu.bedIndex = null; if (!id) stu.room = ''; }
+      syncBed(stu);
+      await persist(); renderTab(); fillRoomSelect();
     } });
+  const fillBeds = () => {
+    const r = findRoom($('smRoom').value); const sel = $('smBed');
+    if (!r) { sel.innerHTML = '<option value="">—</option>'; sel.disabled = true; return; }
+    sel.disabled = false;
+    sel.innerHTML = freeBeds(r, id).map((i) => `<option value="${i}" ${at && at.room.id === r.id && at.i === i ? 'selected' : ''}>Bed ${i + 1}${r.beds[i].name && r.beds[i].studentId === id ? ' (current)' : ''}</option>`).join('');
+    $('smBedType').value = String(Math.min(4, Math.max(1, P.logic.bedTypeOf(r.beds.length))));
+  };
+  $('smRoom').onchange = fillBeds; fillBeds();
+  if (at) $('smBedType').value = String(s.bed || P.logic.bedTypeOf(at.room.beds.length));
+}
+
+// Marking a student active again puts them back in their old bed (or asks for one).
+async function reactivateStudent(stu) {
+  stu.active = '1'; stu.until = '';
+  const last = stu.lastBed; const r = last && findRoom(last.roomId);
+  if (r && r.beds[last.i] && !r.beds[last.i].name && placeStudent(stu, r.id, last.i)) { await persist(); renderStudents(); toast(`${stu.name} is back in ${r.label}, Bed ${last.i + 1}.`); return; }
+  await persist(); renderStudents();
+  toast(last ? 'Their old bed is taken now — choose a room and bed.' : 'Choose a room and bed for this student.');
+  studentModal(stu.id);
 }
 
 // ---------- MONTHLY FEE ----------
@@ -874,7 +918,7 @@ document.addEventListener('click', async (e) => {
     else if (a === 'adm-del') await deleteAdmission(id);
     else if (a === 'stu-add') studentModal(null);
     else if (a === 'stu-edit') studentModal(id);
-    else if (a === 'stu-toggle') { const s = B().students.find((x) => x.id === id); if (s.active === '1') { s.active = '0'; s.until = ym(nowBs().bs.str); B().rooms.forEach((r) => r.beds.forEach((x, i) => { if (x.studentId === id) r.beds[i] = { studentId: null, name: null, phone: null }; })); } else { s.active = '1'; s.until = ''; } await persist(); renderStudents(); }
+    else if (a === 'stu-toggle') { const s = B().students.find((x) => x.id === id); if (s.active === '1') { s.active = '0'; s.until = ym(nowBs().bs.str); const was = vacateStudent(id); if (was) s.lastBed = was; await persist(); renderStudents(); } else await reactivateStudent(s); }
     else if (a === 'stu-del') { if (await confirmBox('Delete student?', 'Their past payments stay in the records. This only removes them from the list.', 'Delete')) { B().students = B().students.filter((x) => x.id !== id); B().rooms.forEach((r) => r.beds.forEach((x, i) => { if (x.studentId === id) r.beds[i] = { studentId: null, name: null, phone: null }; })); await persist(); renderStudents(); } }
     else if (a === 'fee-pay') payModal(id);
     else if (a === 'fee-undo') { if (await confirmBox('Undo payment?', 'The payment and its income entry will be removed.', 'Undo')) { const f = B().fees.find((x) => x.id === id); B().fees = B().fees.filter((x) => x.id !== id); B().income = B().income.filter((r) => r.ref !== (f && f.ref)); await persist(); renderMonthly(); } }
