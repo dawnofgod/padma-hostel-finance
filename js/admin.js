@@ -132,6 +132,7 @@
             ${folder}
             <button data-a="resetpw">🔑 New password</button>
             <button data-a="rename">✎ Rename</button>
+            <button class="danger" data-a="reset">🗑 Reset records</button>
             ${u.driveOff ? '<button data-a="driveon">☁ Drive backup: Off → turn on</button>' : '<button data-a="driveoff">☁ Drive backup: On → turn off</button>'}
             ${u.frozen ? '<button class="ice" data-a="unfreeze">Unfreeze</button>' : '<button class="ice" data-a="freeze">❄ Freeze</button>'}
             <button class="danger" data-a="delete">Remove</button>
@@ -162,10 +163,11 @@
         if (v) { toast('Renamed.'); refresh(); }
         return;
       }
+      if (a === 'reset' && !(await ask('Reset all records of ' + name + '?', 'All their students, admissions, fees, income and expenses are deleted — here now, and on their computer the next time it is online (a safety copy stays on that computer). Use this after a trial. Their login stays.', [{ id: 'c', label: 'Type RESET to confirm' }], 'Reset records', async (x) => { if (String(x.c).trim().toUpperCase() !== 'RESET') throw new Error('Type RESET to confirm.'); }, true))) return;
       if (a === 'freeze' && !(await dialog('Freeze ' + name + '?', 'The app on their computers locks at the next check (within about 2 minutes when online). Their data stays on their computers. You can unfreeze any time.', [], 'Freeze'))) return;
       if (a === 'delete' && !(await dialog('Remove ' + name + '?', 'Their username stops working and the app goes back to the login screen. The data on their computer and the backup files in your Google Drive are <b>not</b> deleted.', [], 'Remove', true))) return;
       await api({ action: a, sub });
-      toast({ freeze: 'Frozen.', unfreeze: 'Unfrozen.', delete: 'Removed.', driveon: 'Drive backup turned on.', driveoff: 'Drive backup turned off. Their records still show in View records.' }[a]);
+      toast({ reset: 'Records reset. Their computer clears its records at its next check.', freeze: 'Frozen.', unfreeze: 'Unfrozen.', delete: 'Removed.', driveon: 'Drive backup turned on.', driveoff: 'Drive backup turned off. Their records still show in View records.' }[a]);
       await refresh();
     } catch (err) { toast(err.message, true); }
   });
@@ -218,6 +220,7 @@
       ['Revenue (month)', money(t.revenue)], ['Expenditure (month)', money(t.expenditure)],
       ['Profit / loss (month)', `<span style="color:${t.net < 0 ? '#b91c1c' : '#047857'}">${money(t.net)}</span>`],
       ['Fees still due (month)', money(due)],
+      ['Deposits to return', money(b.income.filter((r) => C.logic.isRefundable(r) && !r.refundedOn).reduce((x, r) => x + (Number(r.amount) || 0), 0))],
     ].map(([k, v]) => `<div class="card"><div class="k">${k}</div><div class="v" style="font-size:18px">${v}</div></div>`).join('');
     document.querySelectorAll('#vTabs button').forEach((x) => x.classList.toggle('sel', x.dataset.t === V.tab));
     const table = (head, rows, empty) => `<div class="tbl"><table><thead><tr>${head.map((h) => `<th class="${h[1] || ''}">${h[0]}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.join('') : `<tr><td colspan="${head.length}" class="empty">${empty}</td></tr>`}</tbody></table></div>`;

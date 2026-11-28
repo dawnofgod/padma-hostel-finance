@@ -195,6 +195,18 @@ function totals(b, y, m) {
   return { revenue, expenditure, net: revenue - expenditure, deposits: sumOf(inc.filter(isRef)) };
 }
 const feeRows = (b, ymStr) => P.logic.feeStatus({ students: b.students, fees: b.fees }, ymStr);
+// all fees still unpaid from each student's first month up to this month
+function dueAllMonths(b, curYm) {
+  const since = b.students.map((s) => String(s.since || '')).filter((x) => /^\d{4}-\d{2}$/.test(x)).sort()[0];
+  let total = 0; const who = new Set();
+  if (!since) return { total, students: 0 };
+  let [y, m] = since.split('-').map(Number); let guard = 0;
+  while (`${y}-${pad(m)}` <= curYm && guard++ < 120) {
+    feeRows(b, `${y}-${pad(m)}`).forEach((r) => { const d = r.status === 'unpaid' ? r.expected : r.due; if (d > 0) { total += d; who.add(r.s.id); } });
+    m += 1; if (m > 12) { m = 1; y += 1; }
+  }
+  return { total, students: who.size };
+}
 const netCls = (n) => (n < 0 ? 'text-rose-600' : 'text-emerald-600');
 
 // ---------- DASHBOARD ----------
@@ -210,6 +222,9 @@ function renderDashboard() {
   const cnt = { paid: 0, part: 0, unpaid: 0 }; fr.forEach((r) => { cnt[r.status] += 1; });
   const due = fr.reduce((a, r) => a + r.due + (r.status === 'unpaid' && !r.paid ? 0 : 0), 0);
   const heldAll = sumOf(b.income.filter((r) => isRef(r) && !r.refundedOn));
+  const dueAll = dueAllMonths(b, curYm);
+  const heldBoth = Object.keys(all).reduce((a, id) => a + sumOf(S.branches[id].income.filter((r) => isRef(r) && !r.refundedOn)), 0);
+  const dueBoth = Object.keys(all).reduce((a, id) => a + dueAllMonths(S.branches[id], curYm).total, 0);
   // 12-month chart
   const mon = Array.from({ length: 12 }, (_, i) => totals(b, v.y, i + 1));
   const max = Math.max(1, ...mon.map((x) => Math.max(x.revenue, x.expenditure)));
@@ -219,6 +234,11 @@ function renderDashboard() {
   }).join('');
   $('tab-dashboard').innerHTML = `
   <div class="flex items-center justify-between mb-4 flex-wrap gap-3"><div><div class="text-lg font-bold">${esc(BR[branch].name)} — Dashboard</div><div class="text-xs text-slate-500 mono">Revenue excludes refundable security deposits.</div></div><div class="flex gap-2">${monthPicker('dash', false, 'dash')}</div></div>
+  <div class="text-xs font-bold mono text-slate-400 uppercase mb-2">Payable &amp; receivable — today</div>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+    ${stat('PAYABLE — DEPOSITS TO RETURN', money(heldAll), 'text-amber-700', `Refundable security deposits not returned yet (${b.income.filter((r) => isRef(r) && !r.refundedOn).length} students). Both hostels: ${money(heldBoth)}`)}
+    ${stat('RECEIVABLE — FEES STILL DUE', money(dueAll.total), 'text-rose-600', `Unpaid monthly fees up to ${monthName(t.month)} ${t.year} (${dueAll.students} students). Both hostels: ${money(dueBoth)}`)}
+  </div>
   <div class="text-xs font-bold mono text-slate-400 uppercase mb-2">${monthName(v.m)} ${v.y} — monthly</div>
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">${stat('MONTHLY REVENUE', money(mt.revenue), 'text-emerald-600')}${stat('MONTHLY EXPENDITURE', money(mt.expenditure), 'text-rose-600')}${stat('MONTHLY NET PROFIT', money(mt.net), netCls(mt.net))}</div>
   <div class="text-xs font-bold mono text-slate-400 uppercase mb-2">Year ${v.y} — yearly</div>
@@ -538,7 +558,7 @@ function renderLedger(type) {
     <div class="md:col-span-2"><label class="field-label">AMOUNT (Rs.)</label><input id="${type}Amt" type="number" min="0" class="field-input"></div>
     <div class="md:col-span-1"><button class="btn w-full text-white py-2 rounded-md dynamic-bg font-semibold" data-act="led-add" data-type="${type}">Add</button></div></div></div>
   <div class="card p-2"><div class="scroll"><table class="sheet"><thead><tr><th>#</th><th>Date (B.S.)</th><th>Date (A.D.)</th><th>${inc ? 'Category' : 'Particulars'}</th><th>Details</th><th class="r">Amount</th><th></th></tr></thead><tbody>
-  ${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.dateBS)}</td><td>${esc(r.dateAD)}</td><td>${esc(r.category)}${inc && isRef(r) ? ` <span class="tag tag-part">refundable${r.refundedOn ? ' · returned ' + esc(r.refundedOn) : ''}</span>` : ''}</td><td>${esc(r.description)}</td><td class="r">${money(r.amount)}</td><td class="r">${r.ref ? '<span class="text-xs text-slate-400" title="Created by Monthly Fee / Admission — change it there">🔒 auto</span>' : ''} ${inc && isRef(r) ? `<span class="link" data-act="dep-ret" data-id="${esc(r.id)}">${r.refundedOn ? 'Un-mark' : 'Mark returned'}</span> ` : ''}${r.ref ? '' : `<span class="link" data-act="led-edit" data-type="${type}" data-id="${esc(r.id)}">Edit</span> &nbsp; <span class="link link-red" data-act="led-del" data-type="${type}" data-id="${esc(r.id)}">Delete</span>`}</td></tr>`).join('') || '<tr><td colspan="7" class="text-slate-500">No entries for this period.</td></tr>'}
+  ${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.dateBS)}</td><td>${esc(r.dateAD)}</td><td>${esc(r.category)}${inc && isRef(r) ? ` <span class="tag tag-part">refundable${r.refundedOn ? ' · returned ' + esc(r.refundedOn) : ''}</span>` : ''}</td><td>${esc(r.description)}</td><td class="r">${money(r.amount)}</td><td class="r">${r.ref ? '<span class="text-xs text-slate-400" title="Created by Monthly Fee / Admission">auto</span> &nbsp; ' : ''}${inc && isRef(r) ? `<span class="link" data-act="dep-ret" data-id="${esc(r.id)}">${r.refundedOn ? 'Un-mark' : 'Mark returned'}</span> &nbsp; ` : ''}${r.ref ? '' : `<span class="link" data-act="led-edit" data-type="${type}" data-id="${esc(r.id)}">Edit</span> &nbsp; `}<span class="link link-red" data-act="led-del" data-type="${type}" data-id="${esc(r.id)}">Delete</span></td></tr>`).join('') || '<tr><td colspan="7" class="text-slate-500">No entries for this period.</td></tr>'}
   </tbody><tfoot><tr><td colspan="5">Total${inc ? ' revenue' : ''} — ${v.m ? monthName(v.m) + ' ' : ''}${v.y}${dep ? ` &nbsp;<span class="text-xs font-normal">(+ ${money(dep)} refundable deposits not counted)</span>` : ''}</td><td class="r">${money(total)}</td><td></td></tr></tfoot></table></div></div>`;
   const keep = pickers[type + 'Date'] ? pickers[type + 'Date'].get() : null;
   makePicker(type + 'Date', keep || t.year + '-' + pad(t.month) + '-' + pad(t.day));
@@ -586,7 +606,9 @@ function renderSettings() {
   <div class="card p-5"><div class="font-bold mb-3">My account</div>
     <div class="text-sm mb-1">Name: <b>${esc(ACC.profile)}</b></div><div class="text-sm mb-3">Username: <b>${esc(ACC.username)}</b></div>
     <div class="text-xs text-slate-500 mb-4">Your name and username are set by the admin. Your data and backups are kept in your own folder.</div>
-    <button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="restore-drive">⤓ Bring my data from my online backup</button></div>
+    <button class="btn text-sm px-3 py-2 rounded-md border border-slate-300 bg-white" data-act="restore-drive">⤓ Bring my data from my online backup</button>
+    <div class="border-t border-slate-200 mt-5 pt-4"><div class="font-bold text-sm text-rose-700 mb-1">Start fresh</div><div class="text-xs text-slate-500 mb-3">Deletes all students, admissions, fees, income and expenses of both hostels (for example after a trial). Rooms and settings stay. The admin's copy is cleared too.</div>
+    <button class="btn text-sm px-3 py-2 rounded-md border border-rose-300 bg-white text-rose-700" data-act="reset-all">🗑 Delete all records</button></div></div>
   <div class="card p-5"><div class="font-bold mb-3">Change my password</div>${field('Current password', '<input type="password" class="field-input" id="acOld">')}${field('New password (min 6 characters)', '<input type="password" class="field-input" id="acNew">')}<button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="acc-save">Change password</button><div class="text-xs text-slate-500 mt-2">Needs internet. If you forget your password, the admin can set a new one.</div></div></div>`;
   const gdRender = (g) => {
     const e = $('gdInfo'); if (!e) return;
@@ -633,7 +655,17 @@ document.addEventListener('click', async (e) => {
     else if (a === 'fee-undo') { if (await confirmBox('Undo payment?', 'The payment and its income entry will be removed.', 'Undo')) { const f = B().fees.find((x) => x.id === id); B().fees = B().fees.filter((x) => x.id !== id); B().income = B().income.filter((r) => r.ref !== (f && f.ref)); await persist(); renderMonthly(); } }
     else if (a === 'led-add') ledgerAdd(type);
     else if (a === 'led-edit') ledgerEdit(type, id);
-    else if (a === 'led-del') { if (await confirmBox('Delete entry?', 'This entry will be removed from the ledger.', 'Delete')) { B()[type] = B()[type].filter((r) => r.id !== id); await persist(); renderLedger(type); } }
+    else if (a === 'led-del') {
+      const r = B()[type].find((x) => x.id === id); if (!r) return;
+      const isFee = r.ref && (r.ref.startsWith('fee:') || (r.ref.startsWith('adm:') && r.category === 'Monthly Fee'));
+      const msg = isFee ? 'This removes the entry from Income and the matching fee payment, so the student shows as not paid again for that month.'
+        : r.ref ? 'This entry was made by an admission. It is removed from the ledger only (the admission form stays; delete it under Admissions if it was a trial).'
+        : 'This entry will be removed from the ledger.';
+      if (!(await confirmBox('Delete entry?', `${r.category} · ${money(r.amount)} · ${r.dateBS}. ${msg}`, 'Delete'))) return;
+      B()[type] = B()[type].filter((x) => x.id !== id);
+      if (isFee) B().fees = B().fees.filter((f) => f.ref !== r.ref);
+      await persist(); renderLedger(type); toast('Entry deleted.');
+    }
     else if (a === 'dep-ret') { const r = B().income.find((x) => x.id === id); r.refundedOn = r.refundedOn ? '' : nowBs().bs.str; await persist(); renderLedger('income'); }
     else if (a === 'cat-add') catModal(type);
     else if (a === 'cat-del') { S.categories = S.categories.filter((c) => !(c.type === type && c.name === el.dataset.name)); await persist(); renderSettings(); }
@@ -644,6 +676,15 @@ document.addEventListener('click', async (e) => {
     else if (a === 'bk-restore') { const fi = $('bkFile'); fi.value = ''; fi.onchange = () => restoreFrom(fi.files[0]); fi.click(); }
     else if (a === 'regen') { toast('Rebuilding all PDFs…'); STATUS = await P.reports.regenerate(token); updateSaveUi(); toast(STATUS.errors ? STATUS.message : 'All PDFs rebuilt.', !!STATUS.errors); }
     else if (a === 'acc-save') { await P.account.changePassword(token, $('acOld').value, $('acNew').value); $('acOld').value = ''; $('acNew').value = ''; toast('Password changed.'); }
+    else if (a === 'reset-all') {
+      modal({ title: 'Delete all records?', ok: 'Delete everything', body: '<p class="text-sm text-slate-600 mb-3">All students, admissions, fees, income and expenses of <b>both hostels</b> are deleted. Rooms and settings stay. A safety copy is kept on this computer.</p>' + field('Type DELETE to confirm', '<input name="c" class="field-input" autocomplete="off">'),
+        onOk: async (v) => {
+          if (String(v.c).trim().toUpperCase() !== 'DELETE') return 'Type DELETE in capital letters to confirm.';
+          S = await P.resetAll(token); STATUS = await P.reports.status(token);
+          applyBranding(); setBranch(branch); setTab('dashboard'); toast('All records deleted. You can start fresh.');
+          return true;
+        } });
+    }
     else if (a === 'restore-drive') {
       if (!navigator.onLine) throw new Error('This needs internet.');
       if (!(await confirmBox('Bring my data from the online backup?', 'Replace the data on this computer with your latest online backup (for example on a new laptop)? Changes made here after that backup will be lost.', 'Replace'))) return;
@@ -707,6 +748,12 @@ P.account.isFrozen().then((f) => { frozenLock(f); }).catch(() => {});
 P.account.ping().catch(() => {});
 // removed by the admin or password reset: back to the login screen (the data stays on this computer)
 P.account.onRemoved((msg) => { alertRemoved(msg); });
+// the admin reset this account's records (e.g. after a trial)
+P.account.onReset(async () => {
+  if ($('app').classList.contains('hidden') || !token) return;
+  const d = await P.load(token); S = d.state; STATUS = d.status;
+  applyBranding(); setBranch(branch); setTab('dashboard'); toast('The admin reset your records. You can start fresh.');
+});
 function alertRemoved(msg) {
   if (!$('app').classList.contains('hidden')) { toast(msg || 'This account was removed by the admin.', true); setTimeout(() => location.reload(), 4000); }
   else prepareLogin().then(() => showErr(msg || ''));

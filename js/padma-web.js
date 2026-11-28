@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '5.2.1';
+  const APP_VERSION = '5.3.0';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -67,6 +67,20 @@
     loadLogo();
   })();
 
+  async function wipeRecords() {
+    await ready;
+    if (!state) state = db.normalize((await kvGet('state')) || db.defaultState());
+    await kvSet('preReset', { at: new Date().toISOString(), state });
+    const next = JSON.parse(JSON.stringify(state));
+    for (const id of logic.BRANCH_IDS) {
+      const b = next.branches[id];
+      b.students = []; b.records = []; b.fees = []; b.income = []; b.expenditure = [];
+      b.rooms.forEach((r) => { r.beds = r.beds.map(() => ({ studentId: null, name: null, phone: null })); });
+    }
+    await storeState(next);
+    await kvDel('manifest'); await kvDel('driveManifest');
+    const a = await kvGet('account'); if (a) { a.copyHash = ''; await kvSet('account', a); }
+  }
   async function storeState(next) {
     const prev = await kvGet('state');
     if (prev) await kvSet('state.bak', prev);
@@ -379,7 +393,7 @@
   // admin panel it is online (every 2 minutes), backs up to the person's own folder in the owner's Google Drive,
   // can use the form scanner, and gets locked if the admin freezes the account.
   const Client = (() => {
-    const listeners = [], removedListeners = [];
+    const listeners = [], removedListeners = [], resetListeners = [];
     const acc = async () => { await ready; return (await kvGet('account')) || null; };
     const tok = async () => { const a = await acc(); return a && a.token; };
     async function setFrozen(v) {
@@ -427,6 +441,12 @@
         const out = await call({ action: 'ping', stats: stats() });
         await setFrozen(false);
         await remember(out.user);
+        const seen = Number(await kvGet('resetSeen')) || 0;
+        if (out.user.resetAt && Number(out.user.resetAt) > seen) {
+          await kvSet('resetSeen', Number(out.user.resetAt));
+          await wipeRecords();
+          resetListeners.forEach((cb) => { try { cb(); } catch { /* ignore */ } });
+        }
         await sendCopy();
       } catch (e) { if (e.code !== 'FROZEN' && e.code !== 'SIGNIN') console.warn('ping failed', e); }
       return info();
@@ -496,7 +516,7 @@
     return {
       call, ping, login, changePassword, info, note, myBackup,
       isFrozen: async () => { await ready; return !!(await kvGet('frozen')); },
-      onFrozen: (cb) => listeners.push(cb), onRemoved: (cb) => removedListeners.push(cb),
+      onFrozen: (cb) => listeners.push(cb), onRemoved: (cb) => removedListeners.push(cb), onReset: (cb) => resetListeners.push(cb),
       hasToken: async () => !!(await tok()),
     };
   })();
@@ -641,7 +661,15 @@
       isFrozen: () => Client.isFrozen(),
       onFrozen: (cb) => Client.onFrozen(cb),
       onRemoved: (cb) => Client.onRemoved(cb),
+      onReset: (cb) => Client.onReset(cb),
       env: async () => { try { const r = await fetch('api/user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"action":"env"}' }); return (await r.json()).env || ''; } catch { return ''; } },
+    },
+    // "Start fresh": removes all records of both hostels; rooms and settings stay. A safety copy is kept.
+    resetAll: async (token) => {
+      guard(token);
+      await wipeRecords();
+      try { await Client.call({ action: 'cleared' }); await Client.ping(); } catch (e) { console.warn('admin copy not cleared yet', e); }
+      return state;
     },
     setSections: async (token, sections) => { guard(token); const next = JSON.parse(JSON.stringify(state)); next.settings.sections = sections; next.settings.sectionsSet = true; await storeState(next); return state; },
     // e.g. on a new computer: replace the data here with this person's latest Google Drive backup

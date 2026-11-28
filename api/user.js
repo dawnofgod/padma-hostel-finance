@@ -6,6 +6,7 @@
 //   {action:'start', token, path, mime, size}        → { uploadUrl }  (browser PUTs the file straight to Google)
 //   {action:'trash', token, path}
 //   {action:'copy', token, data}                     compressed copy of the records (for View records)
+//   {action:'cleared', token}                         the user deleted all records (Start fresh)
 //   {action:'mybackup', token}                        → { data, modifiedTime }  (restore on a new computer)
 //   {action:'signout', token}
 // A frozen account gets HTTP 423 for everything; a removed account gets 401 {removed:true}.
@@ -16,6 +17,7 @@ function publicUser(u, ownerReady) {
   return {
     username: u.username, email: u.username, gname: '', gpicture: '', hostel: 'Padma Hostel', profile: u.profile || '',
     logo: '', sections, onboarded: true, frozen: u.frozen === '1',
+    resetAt: Number(u.resetAt) || 0,
     drive: { ready: !!ownerReady && u.driveOff !== '1', off: u.driveOff === '1', folderName: u.folderName || '' }, env: L.ENV,
   };
 }
@@ -73,6 +75,11 @@ module.exports = async (req, res) => {
       try { JSON.parse(require('zlib').gunzipSync(Buffer.from(data, 'base64')).toString()); } catch { return res.status(400).json({ error: 'Bad copy.' }); }
       await L.redis('SET', L.K('user:' + u.sub + ':copy'), data);
       await L.hset(key, { lastCopy: Date.now(), copyBytes: Number(b.bytes) || 0, lastBackup: Date.now() });
+      return res.status(200).json({ ok: true });
+    }
+    if (b.action === 'cleared') {
+      await L.redis('DEL', L.K('user:' + u.sub + ':copy'));
+      await L.hset(key, { dataBytes: 0, records: 0, students: 0, lastCopy: '', copyBytes: 0 });
       return res.status(200).json({ ok: true });
     }
     if (b.action === 'mybackup') return res.status(200).json(await L.readBackup(u));

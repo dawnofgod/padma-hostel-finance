@@ -7,6 +7,7 @@
 //   {action:'resetpw', sub, password}  {action:'rename', sub, profile}
 //   {action:'freeze'|'unfreeze'|'delete'|'records', sub}
 //   {action:'adminpw', old, username, password}               change the admin's own login
+//   {action:'reset', sub}                                     delete this user's records (also on their computer at next check)
 //   {action:'driveon'|'driveoff', sub}                         Google Drive backup on/off for one person
 //   {action:'disconnect'}                                     forget the Google Drive connection
 const L = require('./_lib');
@@ -118,6 +119,12 @@ module.exports = async (req, res) => {
         const name = L.folderNameOf({ ...u, profile });
         try { await L.gapi('PATCH', `${L.API}/files/${u.folderId}?fields=id`, JSON.stringify({ name }), { 'Content-Type': 'application/json' }); await L.hset(L.K('user:' + sub), { folderName: name }); } catch (e) { console.warn(e.message); }
       }
+      return res.status(200).json({ ok: true });
+    }
+    if (b.action === 'reset') {
+      // clears the admin's copy now; the user's app deletes its records at its next check (a safety copy stays on that computer)
+      await L.redis('DEL', L.K('user:' + sub + ':copy'));
+      await L.hset(L.K('user:' + sub), { resetAt: Date.now(), dataBytes: 0, records: 0, students: 0, lastCopy: '', copyBytes: 0, lastBackup: '' });
       return res.status(200).json({ ok: true });
     }
     if (b.action === 'driveon' || b.action === 'driveoff') {
