@@ -122,18 +122,22 @@
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div class="card p-6 lg:col-span-2">
           <div class="flex items-center justify-between mb-4">
-            <div><div class="text-lg font-bold">Student Application &amp; Admission</div><div class="text-xs text-slate-500 mono">Register student details based on official form specifications.</div></div>
+            <div><div class="text-lg font-bold" id="admTitle">Student Application Form</div><div class="text-xs text-slate-500 mono">Same questions as the paper form, in the same order.</div></div>
             <span class="chip" style="background:var(--theme-light);color:var(--theme-main);">Branch: <span id="admBranch">Padma Boys Hostel</span></span>
           </div>
 
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div><label class="field-label">FORM NO.</label><input id="admFormNo" class="field-input" placeholder="40642" /></div>
+            <div class="md:col-span-2">
+              <label class="field-label">DATE (ON THE FORM, B.S.)</label>
+              <div id="admAppDatePicker" class="bs-date-group"></div>
+            </div>
+          </div>
           <div class="text-xs font-bold mono text-slate-400 uppercase tracking-wider mb-3 border-b pb-1">Student's Profile</div>
           <div class="flex gap-4 mb-4 items-start">
             <div class="grid grid-cols-1 gap-4 flex-1">
-              <div><label class="field-label">FULL NAME (CAPITAL)</label><input id="admName" class="field-input uppercase" placeholder="RAMESH KUMAR" /></div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label class="field-label">NAME IN NEPALI (नेपालीमा)</label><input id="admNameNp" class="field-input" placeholder="रमेश कुमार" /></div>
-                <div><label class="field-label">FORM NO.</label><input id="admFormNo" class="field-input" placeholder="40642" /></div>
-              </div>
+              <div><label class="field-label">STUDENT'S NAME (IN CAPITAL)</label><input id="admName" class="field-input uppercase" placeholder="RAMESH KUMAR" /></div>
+              <div><label class="field-label">विद्यार्थीको नाम (नेपालीमा)</label><input id="admNameNp" class="field-input" placeholder="रमेश कुमार" /></div>
             </div>
             <div class="photo-box" id="photoBox">
               <input type="file" id="admPhotoInput" accept="image/*" class="hidden" />
@@ -145,17 +149,35 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <label class="field-label">DATE OF BIRTH (B.S.)</label>
               <div id="admDobPicker" class="bs-date-group"></div>
-              <div class="text-[10px] text-slate-400 mt-1">Select BS date (बि.स.)</div>
             </div>
-            <div><label class="field-label">WHATSAPP NUMBER</label><input id="admWhatsapp" class="field-input" placeholder="+977 98XXXXXXXX" /></div>
+            <div><label class="field-label">CONTACT NO.</label><input id="admWhatsapp" class="field-input" placeholder="98XXXXXXXX" /></div>
+            <div><label class="field-label">E-MAIL</label><input id="admEmail" class="field-input" placeholder="ramesh@gmail.com" /></div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div><label class="field-label">EMAIL</label><input id="admEmail" class="field-input" placeholder="ramesh@gmail.com" /></div>
+            <div><label class="field-label">ADDRESS: DISTRICT</label><input id="admDistrict" class="field-input" placeholder="Lalitpur" /></div>
+            <div><label class="field-label">METRO / SUB-METRO / RURAL / MUNICIPALITY</label><input id="admMunicipality" class="field-input" placeholder="Lalitpur Metro" /></div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div><label class="field-label">WARD NO.</label><input id="admWard" class="field-input" placeholder="10" /></div>
+            <div class="md:col-span-3"><label class="field-label">STREET NAME / TOLE / CHOWK</label><input id="admStreet" class="field-input" placeholder="Kumaripati" /></div>
+          </div>
+          <div class="mb-4"><label class="field-label">CITIZENSHIP NO. / DATE OF ISSUE / PLACE</label><input id="admCitizenship" class="field-input" placeholder="12-34-56-78901 / 2077-01-01 / Lalitpur" /></div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div class="md:col-span-2"><label class="field-label">NAME OF THE EDUCATIONAL INSTITUTE</label><input id="admInstitute" class="field-input" placeholder="College / School" /></div>
+            <div><label class="field-label">CLASS TIME</label><input id="admShift" class="field-input" placeholder="Morning / Day" /></div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div><label class="field-label">LEVEL OF STUDY</label><input id="admLevel" class="field-input" placeholder="+2 / Bachelor" /></div>
+            <div><label class="field-label">TIME DURATION TO STAY IN THE HOSTEL</label><input id="admStay" class="field-input" placeholder="1 Year" /></div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <label class="field-label">BLOOD GROUP</label>
               <select id="admBloodGroup" class="field-input bg-white">
@@ -164,54 +186,44 @@
                 <option>AB+</option><option>AB-</option><option>O+</option><option>O-</option>
               </select>
             </div>
-          </div>
-
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <div><label class="field-label">DISTRICT</label><input id="admDistrict" class="field-input" placeholder="Lalitpur" /></div>
-            <div><label class="field-label">MUNICIPALITY</label><input id="admMunicipality" class="field-input" placeholder="Lalitpur Metro" /></div>
-            <div><label class="field-label">WARD NO.</label><input id="admWard" class="field-input" placeholder="10" /></div>
-            <div><label class="field-label">TOLE / STREET</label><input id="admStreet" class="field-input" placeholder="Kumaripati" /></div>
-          </div>
-
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <div><label class="field-label">CITIZENSHIP NO.</label><input id="admCitizenship" class="field-input" placeholder="12-34-56-78901" /></div>
-            <div><label class="field-label">ACADEMIC INSTITUTE</label><input id="admInstitute" class="field-input" placeholder="College / School" /></div>
-            <div><label class="field-label">CLASS TIME / SHIFT</label><input id="admShift" class="field-input" placeholder="Morning / Day" /></div>
-            <div><label class="field-label">LEVEL / COURSE</label><input id="admLevel" class="field-input" placeholder="+2 / Bachelor" /></div>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div>
-              <label class="field-label">FOOD PREFERENCE</label>
+            <div class="md:col-span-2">
+              <label class="field-label">FOOD</label>
               <div class="flex gap-4 mt-2">
                 <label class="radio-row"><input type="radio" name="admFood" value="Vegetarian" checked /> Vegetarian</label>
                 <label class="radio-row"><input type="radio" name="admFood" value="Only Egg" /> Only Egg</label>
-                <label class="radio-row"><input type="radio" name="admFood" value="Non-Vegetarian" /> Non-Vegetarian</label>
+                <label class="radio-row"><input type="radio" name="admFood" value="Non-Vegetarian" /> Non-vegetarian</label>
               </div>
             </div>
-            <div><label class="field-label">HEALTH CONDITIONS</label><input id="admHealth" class="field-input" placeholder="Allergies, conditions..." /></div>
           </div>
+          <div class="mb-6"><label class="field-label">MENTION THE DISEASE (IF ANY)</label><input id="admHealth" class="field-input" placeholder="None" /></div>
 
           <div class="text-xs font-bold mono text-slate-400 uppercase tracking-wider mb-3 border-b pb-1">Guardian's Profile</div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div><label class="field-label">FATHER'S NAME</label><input id="admFather" class="field-input" placeholder="Father's Full Name" /></div>
-            <div><label class="field-label">MOTHER'S NAME</label><input id="admMother" class="field-input" placeholder="Mother's Full Name" /></div>
-            <div><label class="field-label">LOCAL GUARDIAN / SPOUSE</label><input id="admGuardian" class="field-input" placeholder="Guardian Name" /></div>
+            <div><label class="field-label">FATHER'S NAME</label><input id="admFather" class="field-input" placeholder="Father's full name" /></div>
+            <div><label class="field-label">CONTACT NO.</label><input id="admFatherPhone" class="field-input" placeholder="98XXXXXXXX" /></div>
+            <div><label class="field-label">OCCUPATION</label><input id="admFatherOccupation" class="field-input" placeholder="Business" /></div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div><label class="field-label">RELATION</label><input id="admRelation" class="field-input" placeholder="Uncle / Brother" /></div>
-            <div><label class="field-label">EMERGENCY PHONE</label><input id="admEmergencyPhone" class="field-input" placeholder="9800000000" /></div>
+            <div><label class="field-label">MOTHER'S NAME</label><input id="admMother" class="field-input" placeholder="Mother's full name" /></div>
+            <div><label class="field-label">CONTACT NO.</label><input id="admMotherPhone" class="field-input" placeholder="98XXXXXXXX" /></div>
+            <div><label class="field-label">OCCUPATION</label><input id="admMotherOccupation" class="field-input" placeholder="Housewife" /></div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div><label class="field-label">SPOUSE NAME</label><input id="admSpouse" class="field-input" placeholder="If married" /></div>
+            <div><label class="field-label">CONTACT NO.</label><input id="admSpousePhone" class="field-input" placeholder="98XXXXXXXX" /></div>
+            <div><label class="field-label">OCCUPATION</label><input id="admSpouseOccupation" class="field-input" placeholder="Occupation" /></div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div><label class="field-label">NAME OF THE LOCAL GUARDIAN</label><input id="admGuardian" class="field-input" placeholder="Guardian's full name" /></div>
+            <div><label class="field-label">ADDRESS</label><input id="admGuardianAddress" class="field-input" placeholder="Guardian's address" /></div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div><label class="field-label">CONTACT NO.</label><input id="admEmergencyPhone" class="field-input" placeholder="98XXXXXXXX" /></div>
             <div><label class="field-label">OCCUPATION</label><input id="admOccupation" class="field-input" placeholder="Occupation" /></div>
+            <div><label class="field-label">RELATION</label><input id="admRelation" class="field-input" placeholder="Uncle / Brother" /></div>
           </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <div><label class="field-label">FATHER'S PHONE</label><input id="admFatherPhone" class="field-input" placeholder="98XXXXXXXX" /></div>
-            <div><label class="field-label">FATHER'S OCCUPATION</label><input id="admFatherOccupation" class="field-input" placeholder="Business" /></div>
-            <div><label class="field-label">MOTHER'S PHONE</label><input id="admMotherPhone" class="field-input" placeholder="98XXXXXXXX" /></div>
-            <div><label class="field-label">MOTHER'S OCCUPATION</label><input id="admMotherOccupation" class="field-input" placeholder="Housewife" /></div>
-          </div>
-          <div class="mb-6"><label class="field-label">ADDRESS</label><input id="admGuardianAddress" class="field-input" placeholder="Full guardian address" /></div>
 
-          <div class="text-xs font-bold mono text-slate-400 uppercase tracking-wider mb-3 border-b pb-1">Official Hostel Section</div>
+          <div class="text-xs font-bold mono text-slate-400 uppercase tracking-wider mb-3 border-b pb-1">For Official Purpose Only</div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
               <label class="field-label">BOOKING DATE (B.S.)</label>
@@ -235,7 +247,6 @@
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div><label class="field-label">APPROVED BY</label><input id="admApprovedBy" class="field-input" placeholder="Warden / Admin name" /></div>
-            <div><label class="field-label">STAY DURATION</label><input id="admStay" class="field-input" placeholder="1 Year" /></div>
           </div>
 
           <div class="mt-6 flex gap-2">

@@ -166,7 +166,7 @@ function setBranch(id) {
   document.body.classList.toggle('theme-phb', id === 'PHB-01');
   document.body.classList.toggle('theme-phg', id === 'PHG-02');
   document.querySelectorAll('.branch-btn').forEach((b) => b.classList.toggle('branch-active', b.dataset.branch === id));
-  $('admBranch').textContent = BR[id].name;
+  $('admBranch').textContent = BR[id].name; if ($('admTitle')) $('admTitle').textContent = BR[id].name.toUpperCase() + ' — Student Application Form';
   fillRoomSelect(); calcBill(); renderTab();
 }
 function setTab(t) {
@@ -272,11 +272,12 @@ function studentOfEntry(b, r) {
 }
 const entriesOf = (b, stuId) => b.income.filter((r) => studentOfEntry(b, r) === stuId).sort((a, c) => (a.dateBS < c.dateBS ? -1 : a.dateBS > c.dateBS ? 1 : 0));
 const ADM_FIELDS = [
+  ['Form', [['formNo', 'Form no.'], ['applicationDate', 'Date on form']]],
   ['Student', [['name', 'Full name'], ['nameNepali', 'Name (Nepali)'], ['dob', 'Date of birth'], ['bloodGroup', 'Blood group'], ['whatsapp', 'WhatsApp / phone'], ['email', 'Email'], ['citizenship', 'Citizenship no.'], ['health', 'Health notes'], ['foodPreference', 'Food']]],
   ['Address', [['district', 'District'], ['municipality', 'Municipality'], ['ward', 'Ward'], ['street', 'Street / tole']]],
   ['Study', [['institute', 'College / institute'], ['level', 'Level'], ['shift', 'Shift']]],
-  ['Family & guardian', [['fatherName', 'Father'], ['fatherPhone', 'Father phone'], ['fatherOccupation', 'Father occupation'], ['motherName', 'Mother'], ['motherPhone', 'Mother phone'], ['motherOccupation', 'Mother occupation'], ['guardianName', 'Guardian'], ['relation', 'Relation'], ['emergencyPhone', 'Emergency phone'], ['occupation', 'Guardian occupation'], ['guardianAddress', 'Guardian address']]],
-  ['Hostel', [['formNo', 'Form no.'], ['bookingDate', 'Booking date'], ['admissionDate', 'Admission date'], ['roomLabel', 'Room'], ['roomNo', 'Bed'], ['stayDuration', 'Planned stay'], ['approvedBy', 'Approved by']]],
+  ['Family & guardian', [['fatherName', 'Father'], ['fatherPhone', 'Father phone'], ['fatherOccupation', 'Father occupation'], ['motherName', 'Mother'], ['motherPhone', 'Mother phone'], ['motherOccupation', 'Mother occupation'], ['spouseName', 'Spouse'], ['spousePhone', 'Spouse phone'], ['spouseOccupation', 'Spouse occupation'], ['guardianName', 'Local guardian'], ['relation', 'Relation'], ['emergencyPhone', 'Guardian contact no.'], ['occupation', 'Guardian occupation'], ['guardianAddress', 'Guardian address']]],
+  ['Hostel', [['bookingDate', 'Booking date'], ['admissionDate', 'Admission date'], ['roomLabel', 'Room'], ['roomNo', 'Bed'], ['stayDuration', 'Planned stay'], ['approvedBy', 'Approved by']]],
 ];
 function studentProfile(brId, stuId, startTab) {
   const b = S.branches[brId]; const s = b.students.find((x) => x.id === stuId); if (!s) { toast('This student is no longer in the list.', true); return; }
@@ -548,7 +549,7 @@ function resetBill() { lockBill(true); ['billAdm', 'billForm', 'billBed', 'billD
 function clearAdmission() {
   document.querySelectorAll('#tab-admission input[type=text], #tab-admission input:not([type]), #tab-admission input[type=number]').forEach((i) => { if (!['admMonthlyRent', 'admDeposit'].includes(i.id)) i.value = ''; });
   $('admBloodGroup').value = ''; photoData = ''; resetScan(); $('photoPreview').classList.add('hidden'); $('photoPlaceholder').classList.remove('hidden');
-  const t = nowBs().bs.str; pickers.admBookingPicker.set(t); pickers.admAdmissionPicker.set(t); $('admPaid').checked = true; resetBill();
+  const t = nowBs().bs.str; pickers.admBookingPicker.set(t); pickers.admAdmissionPicker.set(t); pickers.admAppDatePicker.set(t); $('admPaid').checked = true; resetBill();
   $('admBookingAD').textContent = adOf(t); $('admAdmissionAD').textContent = adOf(t); fillRoomSelect();
 }
 function readPhoto(file) {
@@ -599,8 +600,8 @@ function fillFromScan(f) {
   put('admHealth', /^(none|no|nil|n\/a)$/i.test(String(f.health || '').trim()) ? 'None' : f.health, 'health'); put('admStay', f.stayDuration, 'stayDuration');
   put('admFather', f.fatherName, 'fatherName'); put('admFatherPhone', f.fatherPhone, 'fatherPhone'); put('admFatherOccupation', f.fatherOccupation, 'fatherOccupation');
   put('admMother', f.motherName, 'motherName'); put('admMotherPhone', f.motherPhone, 'motherPhone'); put('admMotherOccupation', f.motherOccupation, 'motherOccupation');
-  put('admGuardian', f.guardianName || f.spouseName, 'guardianName'); put('admRelation', f.relation, 'relation');
-  put('admEmergencyPhone', f.guardianPhone || f.fatherPhone, 'guardianPhone'); put('admOccupation', f.guardianOccupation, 'guardianOccupation'); put('admGuardianAddress', f.guardianAddress, 'guardianAddress');
+  put('admGuardian', f.guardianName, 'guardianName'); put('admSpouse', f.spouseName, 'spouseName'); put('admSpousePhone', f.spousePhone, 'spousePhone'); put('admSpouseOccupation', f.spouseOccupation, 'spouseOccupation'); put('admRelation', f.relation, 'relation');
+  put('admEmergencyPhone', f.guardianPhone, 'guardianPhone'); put('admOccupation', f.guardianOccupation, 'guardianOccupation'); put('admGuardianAddress', f.guardianAddress, 'guardianAddress');
   put('admApprovedBy', f.approvedBy, 'approvedBy');
   const bg = String(f.bloodGroup || '').toUpperCase().replace(/\s/g, '').replace('VE', '').replace('POSITIVE', '+').replace('NEGATIVE', '-');
   if ([...$('admBloodGroup').options].some((o) => o.value === bg)) { $('admBloodGroup').value = bg; $('admBloodGroup').classList.add(unsure.has('bloodGroup') ? 'scan-check' : 'scan-filled'); }
@@ -615,7 +616,7 @@ function fillFromScan(f) {
     notes.push(`${label}: written as “${esc(raw)}” → ${esc(D.formatLong(r.bs))} B.S.${r.guess ? ' (day/month order guessed — please check)' : ''}`);
     return true;
   };
-  setDate('admDobPicker', null, f.dob, 'Date of birth');
+  setDate('admDobPicker', null, f.dob, 'Date of birth'); setDate('admAppDatePicker', null, f.applicationDate, 'Form date');
   if (!setDate('admBookingPicker', 'admBookingAD', f.bookingDate, 'Booking date')) setDate('admBookingPicker', 'admBookingAD', f.applicationDate, 'Booking date (from form date)');
   if (!setDate('admAdmissionPicker', 'admAdmissionAD', f.admissionDate, 'Admission date')) setDate('admAdmissionPicker', 'admAdmissionAD', f.applicationDate, 'Admission date (from form date)');
   // room from the official box, if written and free
@@ -674,7 +675,7 @@ async function saveAdmission() {
   const fees = { admissionFee: bill.billAdm, formFee: bill.billForm, deposit: bill.billDep, bedFee: bill.billBed, monthlyRent: rent, discount: bill.disc, discountNote: bill.disc ? $('billDiscNote').value.trim() : '' };
   const food = (document.querySelector('input[name=admFood]:checked') || {}).value || '';
   const g = (x) => $(x).value.trim();
-  const rec = { id, studentId: stuId, roomId: room.id, bedIndex: +bedIdx, name, dob: pickers.admDobPicker.get(), whatsapp: g('admWhatsapp'), email: g('admEmail'), bloodGroup: $('admBloodGroup').value, district: g('admDistrict'), municipality: g('admMunicipality'), ward: g('admWard'), street: g('admStreet'), citizenship: g('admCitizenship'), institute: g('admInstitute'), shift: g('admShift'), level: g('admLevel'), foodPreference: food, health: g('admHealth'), fatherName: g('admFather'), motherName: g('admMother'), guardianName: g('admGuardian'), relation: g('admRelation'), emergencyPhone: g('admEmergencyPhone'), occupation: g('admOccupation'), guardianAddress: g('admGuardianAddress'), nameNepali: g('admNameNp'), formNo: g('admFormNo'), fatherPhone: g('admFatherPhone'), fatherOccupation: g('admFatherOccupation'), motherPhone: g('admMotherPhone'), motherOccupation: g('admMotherOccupation'), stayDuration: g('admStay'), scanned: !!scanState, bookingDate: pickers.admBookingPicker.get(), admissionDate: adm, admissionDateBS: adm, roomLabel: room.label, roomNo: 'Bed ' + (+bedIdx + 1), approvedBy: g('admApprovedBy'), photo: photoData, paid: $('admPaid').checked, createdAt: new Date().toISOString(), ...fees };
+  const rec = { id, studentId: stuId, roomId: room.id, bedIndex: +bedIdx, name, dob: pickers.admDobPicker.get(), whatsapp: g('admWhatsapp'), email: g('admEmail'), bloodGroup: $('admBloodGroup').value, district: g('admDistrict'), municipality: g('admMunicipality'), ward: g('admWard'), street: g('admStreet'), citizenship: g('admCitizenship'), institute: g('admInstitute'), shift: g('admShift'), level: g('admLevel'), foodPreference: food, health: g('admHealth'), fatherName: g('admFather'), motherName: g('admMother'), guardianName: g('admGuardian'), spouseName: g('admSpouse'), spousePhone: g('admSpousePhone'), spouseOccupation: g('admSpouseOccupation'), applicationDate: pickers.admAppDatePicker.get(), relation: g('admRelation'), emergencyPhone: g('admEmergencyPhone'), occupation: g('admOccupation'), guardianAddress: g('admGuardianAddress'), nameNepali: g('admNameNp'), formNo: g('admFormNo'), fatherPhone: g('admFatherPhone'), fatherOccupation: g('admFatherOccupation'), motherPhone: g('admMotherPhone'), motherOccupation: g('admMotherOccupation'), stayDuration: g('admStay'), scanned: !!scanState, bookingDate: pickers.admBookingPicker.get(), admissionDate: adm, admissionDateBS: adm, roomLabel: room.label, roomNo: 'Bed ' + (+bedIdx + 1), approvedBy: g('admApprovedBy'), photo: photoData, paid: $('admPaid').checked, createdAt: new Date().toISOString(), ...fees };
   b.records.push(rec);
   b.students.push({ id: stuId, name, phone: rec.whatsapp, room: room.number, bed: P.logic.bedTypeOf(room.beds.length), fee: rent || fees.bedFee, active: '1', since: feeSince(adm), until: '', recordId: id, roomId: room.id });
   room.beds[+bedIdx] = { studentId: stuId, name, phone: rec.whatsapp };
@@ -946,7 +947,7 @@ function initApp() {
   $('saveBtn').onclick = () => doSave(false); $('webBtn').onclick = () => doSave(true); $('saveBannerBtn').onclick = () => doSave(false);
   $('logoutBtn').onclick = async () => { await P.auth.logout(token); location.reload(); };
   const t = nowBs().bs.str;
-  makePicker('admDobPicker', '2060-01-01', 1990, nowBs().bs.year); makePicker('admBookingPicker', t); makePicker('admAdmissionPicker', t);
+  makePicker('admDobPicker', '2060-01-01', 1990, nowBs().bs.year); makePicker('admAppDatePicker', t); makePicker('admBookingPicker', t); makePicker('admAdmissionPicker', t);
   pickers.admBookingPicker.onChange = (s) => { $('admBookingAD').textContent = adOf(s); };
   pickers.admAdmissionPicker.onChange = (s) => { $('admAdmissionAD').textContent = adOf(s); };
   $('admBookingAD').textContent = adOf(t); $('admAdmissionAD').textContent = adOf(t);
