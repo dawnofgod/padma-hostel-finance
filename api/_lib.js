@@ -8,6 +8,9 @@
 //                     database keys and in the Drive folder "Padma Hostel Finance – TEST", so it never mixes with real data.
 const crypto = require('crypto');
 
+// Keys pasted into Vercel sometimes carry spaces or line breaks; Google then rejects them.
+for (const k of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GEMINI_API_KEY']) if (process.env[k]) process.env[k] = process.env[k].trim();
+
 const ENV = process.env.APP_ENV === 'test' ? 'test' : 'live';
 const PREFIX = ENV === 'test' ? 'padma-test:' : 'padma:';
 const ROOT_NAME = ENV === 'test' ? 'Padma Hostel Finance – TEST' : 'Padma Hostel Finance';
