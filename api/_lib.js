@@ -27,6 +27,8 @@ const rand = (n) => crypto.randomBytes(n).toString('hex');
 const SECRET = () => String(process.env.SESSION_SECRET || process.env.GOOGLE_CLIENT_SECRET || '') + '|padma5|' + ENV;
 const hmac = (s) => crypto.createHmac('sha256', SECRET()).update(String(s)).digest('hex');
 const K = (k) => PREFIX + k;
+// One admin login for both copies: the test admin panel uses the same username + password as the real one.
+const ADMIN_KEY = 'padma:admin';
 
 // The address the request came to (live or test copy). Google only accepts redirect addresses that are
 // registered in the OAuth client, so a wrong host can't be abused.
@@ -243,7 +245,7 @@ const adminCookie = (a) => signed('padma_admin', { user: a.user, v: a.v || '1', 
 async function adminFrom(req) {
   const o = readSigned(req, 'padma_admin');
   if (!o) return null;
-  const a = await hgetall(K('admin'));
+  const a = await hgetall(ADMIN_KEY);
   return a.user && a.user === o.user && String(a.v || '1') === String(o.v) ? a : null;
 }
 
@@ -255,7 +257,7 @@ function body(req) {
 const fail = (res, e) => res.status(e.status && e.status >= 400 && e.status < 600 ? e.status : 502).json({ error: e.message || String(e) });
 
 module.exports = {
-  ENV, PREFIX, K, ROOT_NAME, API, UPLOAD, FOLDER, BACKUP_PATH, ONLINE_MS,
+  ENV, PREFIX, K, ADMIN_KEY, ROOT_NAME, API, UPLOAD, FOLDER, BACKUP_PATH, ONLINE_MS,
   sleep, sha, rand, hmac, originOf, redirectOf, dbReady, redis, hgetall, hset,
   exchangeCode, googleAuthUrl, checkState, accessToken, gapi, findChild, makeFolder, findOrMakeFolder, folderFor, cleanPath,
   folderNameOf, userFolder, readBackup, userByToken, newDeviceToken, dropTokens, deleteUser,

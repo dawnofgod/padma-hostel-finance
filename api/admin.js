@@ -40,7 +40,7 @@ module.exports = async (req, res) => {
   if (!L.dbReady()) return res.status(503).json({ error: 'Database is not connected in Vercel yet.' });
   try {
     if (b.action === 'logout') { res.setHeader('Set-Cookie', L.clearCookie('padma_admin')); return res.status(200).json({ ok: true }); }
-    const stored = await L.hgetall(L.K('admin'));
+    const stored = await L.hgetall(L.ADMIN_KEY);
     if (b.action === 'status') return res.status(200).json({ setup: !stored.user, env: L.ENV });
     if (b.action === 'setup') {
       if (stored.user) return res.status(409).json({ error: 'The admin login already exists. Please log in.' });
@@ -48,17 +48,17 @@ module.exports = async (req, res) => {
       const err = userError(user) || pwError(b.password);
       if (err) return res.status(400).json({ error: err });
       const a = { user, pw: L.hashPw(b.password), v: '1', createdAt: new Date().toISOString() };
-      const ok = await L.redis('HSETNX', L.K('admin'), 'user', user); // first one wins
+      const ok = await L.redis('HSETNX', L.ADMIN_KEY, 'user', user); // first one wins
       if (!ok) return res.status(409).json({ error: 'The admin login already exists. Please log in.' });
-      await L.hset(L.K('admin'), a);
+      await L.hset(L.ADMIN_KEY, a);
       res.setHeader('Set-Cookie', L.adminCookie(a));
       return res.status(200).json({ ok: true });
     }
     if (b.action === 'login') {
       const user = L.cleanUser(b.username);
-      if (await L.locked('admin')) return res.status(429).json({ error: 'Too many wrong passwords. Wait 15 minutes.' });
+      if (await L.locked('admin-login')) return res.status(429).json({ error: 'Too many wrong passwords. Wait 15 minutes.' });
       if (!stored.user || user !== stored.user || !L.checkPw(b.password, stored.pw)) {
-        await L.failed('admin'); await L.sleep(700);
+        await L.failed('admin-login'); await L.sleep(700);
         return res.status(401).json({ error: 'Wrong username or password.' });
       }
       res.setHeader('Set-Cookie', L.adminCookie(stored));
@@ -79,7 +79,7 @@ module.exports = async (req, res) => {
       const err = userError(user) || pwError(b.password);
       if (err) return res.status(400).json({ error: err });
       const a = { user, pw: L.hashPw(b.password), v: String((Number(admin.v) || 1) + 1) };
-      await L.hset(L.K('admin'), a);
+      await L.hset(L.ADMIN_KEY, a);
       res.setHeader('Set-Cookie', L.adminCookie(a));
       return res.status(200).json({ ok: true });
     }
