@@ -5,16 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self'">
 <meta name="robots" content="noindex">
-<title>Padma Hostel Finance – Admin</title>
-<link rel="icon" href="assets/icon-192.png">
+<title>Admin Panel – Padma Hostel Finance</title>
+<link rel="icon" href="assets/admin-favicon.png">
 <style>
   :root { --brand: #78350f; --line: #e2e8f0; --muted: #64748b; }
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px/1.5 "Segoe UI", system-ui, Arial, sans-serif; background: #f4f5f9; color: #0f172a; }
-  header { background: #fff; border-bottom: 1px solid var(--line); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 5; }
+  header { background: #1e293b; color: #fff; border-bottom: 1px solid var(--line); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 5; }
   header .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
   header img { width: 36px; height: 36px; border-radius: 9px; }
-  header small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; }
+  header small { display: block; font-weight: 500; color: #cbd5e1; font-size: 12px; }
+  header button { background: transparent; color: #fff; border-color: #475569; }
+  header button:hover { background: #334155; }
+  header #who { color: #cbd5e1; }
   .testbar { background: #ea580c; color: #fff; text-align: center; font-weight: 700; font-size: 12px; padding: 4px; }
   main { max-width: 1400px; margin: 0 auto; padding: 24px; }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 18px; }
@@ -80,13 +83,13 @@
 <body>
 <div id="testBar" class="testbar hidden">TEST COPY — test users and test data only (Drive folder "Padma Hostel Finance – TEST")</div>
 <header>
-  <div class="brand"><img src="assets/logo.png" alt=""><div>Padma Hostel Finance – Admin<small>Users, records, backups and access</small></div></div>
+  <div class="brand"><img src="assets/admin-icon.png" alt=""><div>Admin Panel<small>Padma Hostel Finance · users, records and access</small></div></div>
   <div style="display:flex;gap:10px;align-items:center"><span id="who" class="muted"></span><button id="settingsBtn" class="hidden">⚙ Settings</button><button id="logoutBtn" class="hidden">Log out</button></div>
 </header>
 
 <main>
   <div id="loginBox" class="card login hidden">
-    <img src="assets/logo.png" alt="" style="width:64px;height:64px;border-radius:16px">
+    <img src="assets/admin-icon.png" alt="" style="width:64px;height:64px;border-radius:16px">
     <h2 id="loginTitle">Admin login</h2>
     <p id="loginHint" class="muted">Only the admin can open this panel.</p>
     <form id="loginForm" style="text-align:left;display:grid;gap:10px;margin-top:14px">
@@ -119,7 +122,7 @@
 
 <div id="viewer" class="viewer hidden">
   <header>
-    <div class="brand"><img id="vLogo" src="assets/icon-192.png" alt=""><div><span id="vName"></span><small id="vSub"></small></div></div>
+    <div class="brand"><img id="vLogo" src="assets/admin-icon.png" alt=""><div><span id="vName"></span><small id="vSub"></small></div></div>
     <div style="display:flex;gap:10px;align-items:center"><span class="ro">Read-only</span><button id="vClose">✕ Close</button></div>
   </header>
   <main>

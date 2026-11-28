@@ -190,7 +190,7 @@
   let V = null;
   async function openViewer(u) {
     $('viewer').classList.remove('hidden'); document.body.style.overflow = 'hidden';
-    $('vLogo').src = 'assets/logo.png';
+    $('vLogo').src = 'assets/admin-icon.png';
     $('vName').textContent = u.profile || u.username; $('vSub').textContent = 'Username: ' + u.username;
     $('vBody').innerHTML = '<div class="empty">Loading the latest backup from Google Drive…</div>';
     $('vStats').innerHTML = ''; $('vSections').innerHTML = ''; $('vMonth').innerHTML = ''; $('vWhen').textContent = '';
