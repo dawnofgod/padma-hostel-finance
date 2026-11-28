@@ -558,55 +558,122 @@ function yearlyPL(data, br, y, upto) {
   return page({ title: `Yearly Profit or Loss and Revenue – ${y}`, subtitle: `Year ${y} B.S., Baisakh to ${MONTHS[upto - 1]}  ·  Revenue Rs. ${money(revenue)}  ·  Expenditure Rs. ${money(expenditure)}`, body, branchName: br.name });
 }
 
-// Same sections as the form in the user's original app (letterhead, profile, guardian, hostel section, joining bill, signatures).
+// Looks like Padma's printed paper "Student Application Form" (green frame, boxes, official section),
+// filled in with the saved details. Page 2 is the joining bill.
 function admissionHtml(rec, br) {
-  const opt = (pairs) => pairs.filter(([, v]) => String(v || '').trim()); // extra fields: shown only when filled in
-  const kv = (pairs) => `<table class="kv">${pairs.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v) || '-'}</td></tr>`).join('')}</table>`;
+  const rs = (n) => Math.round(Number(n) || 0).toLocaleString('en-IN');
+  const v = (x) => esc(String(x == null ? '' : x).trim());
+  const hostel = String(br.name || 'Padma Hostel').toUpperCase();
+  const name = String(rec.name || '').toUpperCase();
+  const boxes = Math.max(18, name.length);
+  const letters = Array.from({ length: boxes }, (_, i) => `<span>${esc(name[i] || '')}</span>`).join('');
+  const food = String(rec.foodPreference || '').toLowerCase();
+  const tick = (k) => `<span class="chk">${food === k ? '✓' : ''}</span>`;
+  const f = (label, val, grow = 1, lw) => `<div class="f" style="flex:${grow}"><label${lw ? ` style="min-width:${lw}"` : ''}>${label}</label><div class="bx">${v(val)}</div></div>`;
+  const row = (...cells) => `<div class="row">${cells.join('')}</div>`;
   const total = (Number(rec.admissionFee) || 0) + (Number(rec.deposit) || 0) + (Number(rec.formFee) || 0) + (Number(rec.bedFee) || 0);
+  const monthly = Number(rec.monthlyRent) || Number(rec.bedFee) || 0;
+  const appDate = rec.applicationDate || rec.bookingDate || rec.admissionDate || '';
   return `<!doctype html><html><head><meta charset="utf-8"><title>Admission – ${esc(rec.name)}</title><style>
 @page { size: A4 portrait; margin: 0; }
 * { box-sizing: border-box; }
-body { font: 10pt/1.35 "Segoe UI", Calibri, Arial, sans-serif; color: #141414; margin: 0; }
-.band { background: #171717; color: #fff; padding: 9mm 14mm 6mm; display: flex; justify-content: space-between; align-items: center; }
-.band .t { font: 700 16pt Helvetica, Arial, sans-serif; } .band .s { font-size: 9pt; margin-top: 2px; } .band .g { font-size: 8.5pt; text-align: right; }
-.band img { height: 16mm; width: 16mm; object-fit: contain; background: #fff; border-radius: 3mm; margin-right: 8mm; }
-.wrap { padding: 6mm 14mm 0; position: relative; }
-h1 { font: 700 13pt Helvetica, Arial, sans-serif; margin: 0 0 3mm; padding-bottom: 2mm; border-bottom: 1px solid #c8c8c8; }
-h2 { font: 700 10pt Helvetica, Arial, sans-serif; margin: 5mm 0 1.5mm; padding-bottom: 1mm; border-bottom: 1px solid #e0e0e0; }
-.photo { position: absolute; right: 14mm; top: 17mm; width: 32mm; height: 32mm; border: 1px solid #b4b4b4; }
+body { margin: 0; font: 9.5pt/1.25 "Segoe UI", Calibri, Arial, "Nirmala UI", "Mangal", sans-serif; color: #1f2937; }
+.sheet { width: 210mm; height: 297mm; padding: 7mm; background: #fff; overflow: hidden; }
+.frame { height: 100%; background: #3f9f45; padding: 2.2mm 4mm 4mm; display: flex; flex-direction: column; }
+.strip { display: flex; justify-content: space-between; color: #fff; font-size: 7.5pt; font-weight: 600; padding: 0 1mm 1.6mm; }
+.paper { flex: 1; background: #dde8f1; border: 1.2mm solid #6cbf62; padding: 4mm 6mm 3mm; position: relative; display: flex; flex-direction: column; }
+.head { display: flex; align-items: flex-start; }
+.formno { width: 40mm; font-size: 8.5pt; padding-top: 2mm; } .formno b { font: 600 14pt "Courier New", monospace; color: #374151; margin-left: 2mm; letter-spacing: 1px; }
+.title { flex: 1; text-align: center; }
+.title .h { font: 700 18pt "Arial Narrow", Arial, sans-serif; letter-spacing: 3px; white-space: nowrap; color: #1f2937; }
+.title .c { font: 500 13pt Arial, sans-serif; letter-spacing: 1px; margin-top: .5mm; }
+.pill { display: inline-block; background: #e5322d; color: #fff; font: italic 700 13pt Georgia, "Times New Roman", serif; padding: 1mm 4mm; border-radius: 2mm; margin-top: 2.5mm; }
+.photo { width: 27mm; height: 29mm; border: .4mm solid #9ca3af; border-radius: 2mm; background: #eef3f8; overflow: hidden; }
 .photo img { width: 100%; height: 100%; object-fit: cover; }
-table.kv { width: 100%; border-collapse: collapse; }
-table.kv th { text-align: left; color: #5a5a5a; font-weight: 700; width: 40mm; padding: 1.2mm 0; font-size: 9.5pt; vertical-align: top; }
-table.kv td { padding: 1.2mm 0; font-size: 9.5pt; }
-table.bill { width: 100%; border-collapse: collapse; margin-top: 4mm; }
-table.bill th { background: #171717; color: #fff; text-align: left; padding: 2mm 3mm; }
-table.bill td { border: 1px solid #aaa; padding: 2mm 3mm; } td.r, th.r { text-align: right; }
-table.bill tfoot td { background: #f5f5f5; font-weight: 700; }
-.sign { display: flex; justify-content: space-between; margin-top: 22mm; font-size: 9pt; }
-.sign div { width: 56mm; border-top: 1px solid #969696; padding-top: 1.5mm; }
-.sign div:last-child { text-align: right; }
+.dear { display: flex; justify-content: space-between; margin-top: 1.5mm; font-size: 8.6pt; }
+.dear .d { text-align: right; } .ul { border-bottom: .25mm dotted #374151; display: inline-block; min-width: 30mm; padding: 0 1mm; font-weight: 600; }
+.letter { font-size: 8.4pt; margin-top: 1mm; }
+.bar { display: flex; align-items: center; margin: 2.2mm 0 1.4mm; } .bar:before, .bar:after { content: ""; flex: 1; border-top: .35mm solid #4b5563; }
+.bar span { background: #3f3f46; color: #fff; font: 700 9pt Arial, sans-serif; padding: .7mm 3mm; border-radius: 1mm; letter-spacing: .5px; }
+.row { display: flex; gap: 2mm; margin: 1.5mm 0; align-items: center; }
+.f { display: flex; align-items: center; gap: 1.5mm; min-width: 0; }
+.f label { white-space: nowrap; font-size: 8.4pt; }
+.bx { flex: 1; min-height: 6.2mm; background: #fff; border: .25mm solid #b6c3cf; padding: 1mm 1.6mm; font: 600 8.8pt "Segoe UI", Arial, sans-serif; color: #0f2b5b; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.letters { flex: 1; display: flex; border: .25mm solid #b6c3cf; background: #fff; }
+.letters span { flex: 1; height: 6.2mm; border-right: .25mm solid #b6c3cf; text-align: center; font: 700 9pt Arial, sans-serif; color: #0f2b5b; line-height: 6.2mm; }
+.letters span:last-child { border-right: 0; }
+.chk { display: inline-block; width: 5mm; height: 5mm; background: #fff; border: .3mm solid #6b7280; text-align: center; line-height: 4.6mm; font-weight: 700; color: #0f2b5b; margin: 0 4mm 0 1.5mm; vertical-align: middle; }
+.decl { font-style: italic; font-size: 8.2pt; margin-top: 2.5mm; }
+.sig { text-align: right; margin: 1.5mm 0 5mm; color: #b45309; font-weight: 600; font-size: 10pt; } .sig i { display: inline-block; width: 45mm; border-bottom: .25mm dotted #6b7280; }
+.off { margin-top: auto; flex-shrink: 0; border: .35mm solid #6b7280; border-radius: 2mm; background: #eef3f8; padding: 4mm 3mm 2mm; position: relative; }
+.off .tag { position: absolute; top: -3.2mm; left: 50%; transform: translateX(-50%); background: #e5322d; color: #fff; font: 700 8.5pt Arial; padding: .6mm 2.5mm; border-radius: 1mm; }
+.off .bx { background: #cdd9e5; border-color: #aebccb; }
+.off .note { text-align: center; font-style: italic; font-size: 7.6pt; margin-top: 1.5mm; }
+.bill { padding: 14mm 16mm; }
+.bill h1 { font: 700 18pt Arial; margin: 0; letter-spacing: 2px; } .bill .sub { color: #4b5563; margin-bottom: 6mm; }
+.bill table { width: 100%; border-collapse: collapse; margin-top: 4mm; font-size: 10pt; }
+.bill th { background: #3f9f45; color: #fff; text-align: left; padding: 2.4mm 3mm; } .bill td { border: .25mm solid #c7d2dc; padding: 2.4mm 3mm; }
+.bill .r { text-align: right; } .bill tfoot td { font-weight: 700; background: #eef6ee; }
+.bill .kv { display: grid; grid-template-columns: 38mm 1fr 38mm 1fr; gap: 1.6mm 3mm; font-size: 9.5pt; } .bill .kv b { color: #4b5563; font-weight: 600; }
+.bill .signs { display: flex; justify-content: space-between; margin-top: 28mm; font-size: 9pt; } .bill .signs div { width: 60mm; border-top: .3mm solid #6b7280; padding-top: 1.5mm; } .bill .signs div:last-child { text-align: right; }
+.gen { color: #6b7280; font-size: 7.5pt; margin-top: 10mm; }
 </style></head><body>
-<div class="band"><div style="display:flex;align-items:center">${LOGO ? `<img src="${LOGO}" alt="">` : ''}<div><div class="t">Padma Hostel</div><div class="s">${esc(br.name)} (${esc(br.id)})</div></div></div><div class="g">Generated: {{GENERATED}}</div></div>
-<div class="wrap">
-<h1 style="margin-top:2mm">Student Admission Form &amp; Joining Bill</h1>
-<div class="photo">${rec.photo ? `<img src="${rec.photo}" alt="">` : ''}</div>
-<div style="width:140mm">
-<h2 style="margin-top:0">Student Profile</h2>
-${kv([['Full Name', rec.name], ...opt([['Name in Nepali', rec.nameNepali], ['Form No.', rec.formNo]]), ['Date of Birth (BS)', rec.dob], ['WhatsApp', rec.whatsapp], ['Email', rec.email], ['Blood Group', rec.bloodGroup]])}
+<div class="sheet"><div class="frame">
+ <div class="strip"><span>होस्टल व्यवसायी संघ नेपालमा आवद्ध</span><span>Application Form Fee Rs. ${rs(rec.formFee || 200)}/-</span></div>
+ <div class="paper">
+  <div class="head"><div class="formno">Form No. <b>${v(rec.formNo)}</b></div>
+   <div class="title"><div class="h">${esc(hostel)}</div><div class="c">LALITPUR</div><div class="pill">Student Application Form</div></div>
+   <div style="width:40mm;display:flex;justify-content:flex-end"><div class="photo">${rec.photo ? `<img src="${rec.photo}" alt="">` : ''}</div></div></div>
+  <div class="dear"><b>Dear Sir/Madam,</b><span class="d">Date: <span class="ul">${v(appDate)}</span></span></div>
+  <div class="letter">I <span class="ul" style="min-width:70mm">${esc(name)}</span> being interested to stay in this hostel have submitted this application (filling up all the details concerning me) along with other necessary documents.</div>
+  <div class="bar"><span>STUDENT'S PROFILE</span></div>
+  ${row(`<div class="f" style="flex:1"><label>Student's Name (IN CAPITAL)</label><div class="letters">${letters}</div></div>`)}
+  ${row(f('विद्यार्थीको नाम : (नेपालीमा)', rec.nameNepali))}
+  ${row(f('Date of Birth', rec.dob, 1.1), f('Contact No.', rec.whatsapp, 1.4), f('E-mail', rec.email, 1.9))}
+  ${row(f('Address: District', rec.district, 1.3), f('Metro/Sub-Metro/Rural/Municipality', rec.municipality, 2))}
+  ${row(f('Ward No.:', rec.ward, .55), f('Street Name/Tole/Chowk', rec.street, 2.5))}
+  ${row(f('Citizenship No./Date of Issue/Place', rec.citizenship))}
+  ${row(f('Name of the Educational Institute', rec.institute, 2.2), f('Class Time', rec.shift, 1))}
+  ${row(f('Level of Study', rec.level, 1.5), f('Time duration to stay in the hostel', rec.stayDuration, 1.8))}
+  ${row(f('Blood Group', rec.bloodGroup, 1.3), `<div class="f" style="flex:2.2;justify-content:flex-end"><label>Food : Vegetarian</label>${tick('vegetarian')}<label>Only Egg</label>${tick('only egg')}<label>Non-vegetarian</label>${tick('non-vegetarian')}</div>`)}
+  ${row(f('Mention the disease (if any)', rec.health))}
+  <div class="bar"><span>GUARDIAN'S PROFILE</span></div>
+  ${row(f("Father's Name", rec.fatherName, 1.7, '24mm'), f('Contact No.', rec.fatherPhone, 1.1), f('Occupation', rec.fatherOccupation, 1))}
+  ${row(f("Mother's Name", rec.motherName, 1.7, '24mm'), f('Contact No.', rec.motherPhone, 1.1), f('Occupation', rec.motherOccupation, 1))}
+  ${row(f('Spouse Name', rec.spouseName, 1.7, '24mm'), f('Contact No.', rec.spousePhone, 1.1), f('Occupation', rec.spouseOccupation, 1))}
+  ${row(f('Name of the Local Guardian', rec.guardianName, 1.5), f('Address :', rec.guardianAddress, 1.4))}
+  ${row(f('Contact No.', rec.emergencyPhone, 1.2), f('Occupation', rec.occupation, 1.3), f('Relation', rec.relation, 1.2))}
+  <div class="decl">I hereby declare that I am fully satisfied with the terms and conditions of the hostel. I agree every rule and regulation of the hostel and would like to get admission. I promise that I will not violet any rules. If found, I accept any action taken by the hostel management. Therefore, I would like to request the hostel management to allow me to get admission.</div>
+  <div class="sig">Student's Signature: <i></i></div>
+  <div class="off"><span class="tag">For Official Purpose Only</span>
+   <div style="display:flex;gap:4mm">
+    <div style="flex:1.25">
+     ${row(f('Booking Date', rec.bookingDate, 1.4, '24mm'), f('Room No.', [String(rec.roomLabel || '').replace(/^Room\s*/i, ''), rec.roomNo].filter(Boolean).join(' · '), 1))}
+     ${row(f('Monthly Fee', monthly ? 'Rs. ' + rs(monthly) : '', 1, '24mm'))}
+     ${row(f('Admission Date', rec.admissionDate, 1, '24mm'))}
+    </div>
+    <div style="flex:1"><div style="text-align:center;font-weight:700;margin:1mm 0 1mm">Approved by</div>
+     ${row(f('Name', rec.approvedBy, 1, '16mm'))}${row(f('Signature', '', 1, '16mm'))}</div>
+   </div>
+   <div class="note">Only the original copy of the application form will be valid while admitting the student.</div>
+  </div>
+ </div>
+</div></div>
+<div class="sheet bill">
+ <h1>${esc(hostel)}</h1><div class="sub">Lalitpur · Joining Bill</div>
+ <div class="kv"><b>Student</b><span>${esc(name)}</span><b>Form No.</b><span>${v(rec.formNo) || '-'}</span>
+  <b>Room / Bed</b><span>${v([rec.roomLabel, rec.roomNo].filter(Boolean).join(' · '))}</span><b>Admission Date</b><span>${v(rec.admissionDate)}</span>
+  <b>Contact No.</b><span>${v(rec.whatsapp) || '-'}</span><b>Monthly Fee</b><span>Rs. ${rs(monthly)}</span></div>
+ <table><thead><tr><th>Joining Bill Item</th><th class="r">Amount (Rs.)</th></tr></thead><tbody>
+ <tr><td>Admission Fee</td><td class="r">${rs(rec.admissionFee)}</td></tr>
+ <tr><td>Security Deposit (refundable)</td><td class="r">${rs(rec.deposit)}</td></tr>
+ <tr><td>Form Fee</td><td class="r">${rs(rec.formFee)}</td></tr>
+ <tr><td>Bed / Room Fee (first month)</td><td class="r">${rs(rec.bedFee)}</td></tr>${Number(rec.discount) ? `<tr><td>Discount given${rec.discountNote ? ' (' + esc(rec.discountNote) + ')' : ''} — already taken off the amounts above</td><td class="r">${rs(rec.discount)}</td></tr>` : ''}</tbody>
+ <tfoot><tr><td>TOTAL</td><td class="r">${rs(total)}</td></tr></tfoot></table>
+ <div class="signs"><div>Student / Guardian Signature</div><div>Authorized Signature (${esc(br.name || 'Padma Hostel')})</div></div>
+ <div class="gen">Generated: {{GENERATED}}</div>
 </div>
-${kv([['District', rec.district], ['Municipality', rec.municipality], ['Ward No.', rec.ward], ['Tole / Street', rec.street], ['Citizenship No.', rec.citizenship], ['Institute', rec.institute], ['Class Shift', rec.shift], ['Level / Course', rec.level], ['Food Preference', rec.foodPreference], ['Health Conditions', rec.health]])}
-<h2>Guardian's Profile</h2>
-${kv([["Father's Name", rec.fatherName], ...opt([["Father's Phone", rec.fatherPhone], ["Father's Occupation", rec.fatherOccupation]]), ["Mother's Name", rec.motherName], ...opt([["Mother's Phone", rec.motherPhone], ["Mother's Occupation", rec.motherOccupation]]), ['Local Guardian', rec.guardianName], ['Relation', rec.relation], ['Emergency Phone', rec.emergencyPhone], ['Occupation', rec.occupation], ['Address', rec.guardianAddress]])}
-<h2>Official Hostel Section</h2>
-${kv([['Booking Date (BS)', rec.bookingDate], ['Admission Date (BS)', rec.admissionDate], ['Assigned Room', rec.roomLabel], ['Bed No.', rec.roomNo], ...opt([['Stay Duration', rec.stayDuration]]), ['Approved By', rec.approvedBy]])}
-<table class="bill"><thead><tr><th>Joining Bill Item</th><th class="r">Amount (Rs.)</th></tr></thead><tbody>
-<tr><td>Admission Fee</td><td class="r">${money(rec.admissionFee)}</td></tr>
-<tr><td>Security Deposit (refundable)</td><td class="r">${money(rec.deposit)}</td></tr>
-<tr><td>Form Fee</td><td class="r">${money(rec.formFee)}</td></tr>
-<tr><td>Bed / Room Fee</td><td class="r">${money(rec.bedFee)}</td></tr>${Number(rec.discount) ? `<tr><td>Discount given${rec.discountNote ? ' (' + esc(rec.discountNote) + ')' : ''} — already taken off the amounts above</td><td class="r">${money(rec.discount)}</td></tr>` : ''}</tbody>
-<tfoot><tr><td>TOTAL</td><td class="r">${money(total)}</td></tr></tfoot></table>
-<div class="sign"><div>Student / Guardian Signature</div><div>Authorized Signature (Padma Hostel)</div></div>
-</div></body></html>`;
+</body></html>`;
 }
 
 // month ("2083-07") an admission record belongs to
