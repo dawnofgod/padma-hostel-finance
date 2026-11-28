@@ -14,7 +14,7 @@ const isRef = (r) => !!r.refundable || r.category === DEP;
 const ym = (d) => String(d || '').slice(0, 7);
 
 let token = null, S = null, branch = 'PHB-01', tab = 'dashboard', STATUS = {}, INFO = {};
-const view = { dash: { y: 0, m: 0 }, fee: { y: 0, m: 0 }, inc: { y: 0, m: 0 }, exp: { y: 0, m: 0 }, stuQ: '' };
+const view = { dash: { y: 0, m: 0 }, fee: { y: 0, m: 0 }, inc: { y: 0, m: 0 }, exp: { y: 0, m: 0 }, stuQ: '', bal: { scope: 'one', q: '', show: 'all' } };
 let photoData = '', lastAdm = null;
 const pickers = {};
 
@@ -176,7 +176,7 @@ function setTab(t) {
   renderTab();
 }
 function renderTab() {
-  ({ dashboard: renderDashboard, rooms: renderRooms, admission: renderAdmList, students: renderStudents, monthly: renderMonthly, income: () => renderLedger('income'), expenditure: () => renderLedger('expenditure'), settings: renderSettings }[tab])();
+  ({ dashboard: renderDashboard, rooms: renderRooms, admission: renderAdmList, students: renderStudents, monthly: renderMonthly, income: () => renderLedger('income'), expenditure: () => renderLedger('expenditure'), settings: renderSettings, balance: renderBalance }[tab])();
 }
 
 function monthPicker(key, withAll, act) {
@@ -235,10 +235,11 @@ function renderDashboard() {
   $('tab-dashboard').innerHTML = `
   <div class="flex items-center justify-between mb-4 flex-wrap gap-3"><div><div class="text-lg font-bold">${esc(BR[branch].name)} — Dashboard</div><div class="text-xs text-slate-500 mono">Revenue excludes refundable security deposits.</div></div><div class="flex gap-2">${monthPicker('dash', false, 'dash')}</div></div>
   <div class="text-xs font-bold mono text-slate-400 uppercase mb-2">Payable &amp; receivable — today</div>
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 cursor-pointer" data-act="go-balance" title="Open the Balance Sheet to see each student">
     ${stat('PAYABLE — DEPOSITS TO RETURN', money(heldAll), 'text-amber-700', `Refundable security deposits not returned yet (${b.income.filter((r) => isRef(r) && !r.refundedOn).length} students). Both hostels: ${money(heldBoth)}`)}
     ${stat('RECEIVABLE — FEES STILL DUE', money(dueAll.total), 'text-rose-600', `Unpaid monthly fees up to ${monthName(t.month)} ${t.year} (${dueAll.students} students). Both hostels: ${money(dueBoth)}`)}
   </div>
+  <div class="text-xs text-slate-500 mb-5" style="margin-top:-.75rem">Click a box to see each student in the <span class="link" data-act="go-balance">Balance Sheet</span>.</div>
   <div class="text-xs font-bold mono text-slate-400 uppercase mb-2">${monthName(v.m)} ${v.y} — monthly</div>
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">${stat('MONTHLY REVENUE', money(mt.revenue), 'text-emerald-600')}${stat('MONTHLY EXPENDITURE', money(mt.expenditure), 'text-rose-600')}${stat('MONTHLY NET PROFIT', money(mt.net), netCls(mt.net))}</div>
   <div class="text-xs font-bold mono text-slate-400 uppercase mb-2">Year ${v.y} — yearly</div>
@@ -257,6 +258,136 @@ function renderDashboard() {
     <table class="sheet"><thead><tr><th>Hostel</th><th class="r">Month revenue</th><th class="r">Month expenditure</th><th class="r">Month net</th><th class="r">Year revenue</th><th class="r">Year expenditure</th><th class="r">Year net</th></tr></thead><tbody>
     ${other.map((o) => `<tr><td>${esc(BR[o.id].name)}</td><td class="r">${money(o.m.revenue)}</td><td class="r">${money(o.m.expenditure)}</td><td class="r ${netCls(o.m.net)}">${money(o.m.net)}</td><td class="r">${money(o.y.revenue)}</td><td class="r">${money(o.y.expenditure)}</td><td class="r ${netCls(o.y.net)}">${money(o.y.net)}</td></tr>`).join('')}
     </tbody><tfoot><tr><td>Total</td>${['m', 'y'].map((k) => { const rv = other.reduce((a, o) => a + o[k].revenue, 0), ex = other.reduce((a, o) => a + o[k].expenditure, 0); return `<td class="r">${money(rv)}</td><td class="r">${money(ex)}</td><td class="r">${money(rv - ex)}</td>`; }).join('')}</tr></tfoot></table></div>`;
+}
+
+
+// ---------- BALANCE SHEET ----------
+// Who you owe (deposits to give back) and who owes you (deposits not taken, unpaid monthly fees), by student.
+const depositsOf = (b, s) => b.income.filter((r) => isRef(r) && (r.studentId === s.id || (s.recordId && r.ref === 'adm:' + s.recordId)));
+function balanceRows(brId) {
+  const b = S.branches[brId]; const t = nowBs().bs; const curYm = t.year + '-' + pad(t.month);
+  const linked = new Set();
+  const dep = []; const fee = new Map();
+  for (const s of b.students) {
+    const ds = depositsOf(b, s); ds.forEach((r) => linked.add(r.id));
+    const rec = s.recordId ? b.records.find((r) => r.id === s.recordId) : null;
+    const left = s.active !== '1';
+    if (ds.length) {
+      for (const r of ds) {
+        const state = r.refundedOn ? 'returned' : left ? 'return-now' : 'held';
+        dep.push({ br: brId, s, r, name: s.name, room: s.room, phone: s.phone, amount: num(r.amount), date: r.dateBS, returned: r.refundedOn || '', left, until: s.until, state });
+      }
+    } else if (!left) {
+      const expect = rec ? num(rec.deposit) : num(S.settings.admission.deposit);
+      dep.push({ br: brId, s, r: null, name: s.name, room: s.room, phone: s.phone, amount: expect, date: '', returned: '', left, until: s.until, state: expect > 0 ? 'not-taken' : 'none' });
+    }
+  }
+  // deposits typed straight into the Income ledger and not linked to a student
+  b.income.filter((r) => isRef(r) && !linked.has(r.id)).forEach((r) => dep.push({ br: brId, s: null, r, name: String(r.description || r.category).split(' — ')[0], room: '', phone: '', amount: num(r.amount), date: r.dateBS, returned: r.refundedOn || '', left: false, until: '', state: r.refundedOn ? 'returned' : 'held' }));
+  // unpaid monthly fees, month by month
+  const since = b.students.map((x) => String(x.since || '')).filter((x) => /^\d{4}-\d{2}$/.test(x)).sort()[0];
+  if (since) {
+    let [y, m] = since.split('-').map(Number); let guard = 0;
+    while (`${y}-${pad(m)}` <= curYm && guard++ < 120) {
+      const key = `${y}-${pad(m)}`;
+      feeRows(b, key).forEach((r) => {
+        const d = r.status === 'unpaid' ? r.expected : r.due;
+        if (!fee.has(r.s.id)) fee.set(r.s.id, { br: brId, s: r.s, months: [], total: 0, paidMonths: 0 });
+        const f = fee.get(r.s.id);
+        if (d > 0) { f.months.push({ key, y, m, due: d, part: r.status === 'part' }); f.total += d; } else f.paidMonths += 1;
+      });
+      m += 1; if (m > 12) { m = 1; y += 1; }
+    }
+  }
+  return { dep, fee: [...fee.values()] };
+}
+const BADGE = {
+  'return-now': ['bal-red', '🔴 Left — return now'],
+  held: ['bal-amber', '🟡 Taken — holding'],
+  returned: ['bal-green', '🟢 Returned'],
+  'not-taken': ['bal-red', '🔴 Not taken'],
+  none: ['bal-grey', '⚪ No deposit'],
+  'fee-due': ['bal-red', '🔴 Fee due'],
+  'fee-part': ['bal-amber', '🟡 Part paid'],
+  'fee-ok': ['bal-green', '🟢 All paid'],
+};
+const badge = (k) => `<span class="bal-badge ${BADGE[k][0]}">${BADGE[k][1]}</span>`;
+function balanceData() {
+  const ids = view.bal.scope === 'both' ? Object.keys(BR) : [branch];
+  const q = view.bal.q.toLowerCase();
+  const hit = (x) => !q || `${x.name} ${x.room} ${x.phone}`.toLowerCase().includes(q);
+  let dep = [], fee = [];
+  ids.forEach((id) => { const r = balanceRows(id); dep = dep.concat(r.dep); fee = fee.concat(r.fee); });
+  fee = fee.map((f) => ({ ...f, name: f.s.name, room: f.s.room, phone: f.s.phone || '', state: !f.total ? 'fee-ok' : f.months.every((x) => x.part) ? 'fee-part' : 'fee-due' }));
+  const payable = sumOf(dep.filter((d) => d.state === 'held' || d.state === 'return-now'));
+  const returnNow = sumOf(dep.filter((d) => d.state === 'return-now'));
+  const depDue = sumOf(dep.filter((d) => d.state === 'not-taken'));
+  const feeDue = fee.reduce((a, f) => a + f.total, 0);
+  const order = { 'return-now': 0, 'not-taken': 1, held: 2, returned: 3, none: 4, 'fee-due': 0, 'fee-part': 1, 'fee-ok': 2 };
+  const sorter = (a, c) => order[a.state] - order[c.state] || String(a.name).localeCompare(String(c.name));
+  return { ids, payable, returnNow, depDue, feeDue, dep: dep.filter(hit).sort(sorter), fee: fee.filter(hit).sort(sorter), allDep: dep, allFee: fee };
+}
+function renderBalance() {
+  const v = view.bal; const d = balanceData(); const both = v.scope === 'both';
+  const t = nowBs().bs;
+  const receivable = d.depDue + d.feeDue; const net = receivable - d.payable;
+  const show = v.show;
+  const depRows = d.dep.filter((x) => show === 'all' || (show === 'open' && x.state !== 'returned' && x.state !== 'none'));
+  const feeRowsF = d.fee.filter((x) => show === 'all' || (show === 'open' && x.total > 0));
+  const hcol = both ? '<th>Hostel</th>' : '';
+  const hcell = (br) => (both ? `<td>${esc(BR[br].name.replace('Padma ', ''))}</td>` : '');
+  const stuCell = (x) => `<td><b>${esc(x.name)}</b>${x.phone ? `<div class="text-xs text-slate-500">${esc(x.phone)}</div>` : ''}</td>`;
+  const depAct = (x) => {
+    if (x.state === 'not-taken' || x.state === 'none') return x.s ? `<span class="link" data-act="bal-dep-take" data-br="${x.br}" data-id="${esc(x.s.id)}">Receive deposit</span>` : '';
+    if (x.state === 'returned') return `<span class="link" data-act="bal-dep-ret" data-br="${x.br}" data-id="${esc(x.r.id)}">Undo</span>`;
+    return `<span class="link" data-act="bal-dep-ret" data-br="${x.br}" data-id="${esc(x.r.id)}">Mark returned</span>`;
+  };
+  const stayCell = (x) => (x.s ? (x.left ? `Left ${esc(x.until)}` : 'Staying') : '—');
+  const card = (label, val, cls, sub) => `<div class="card p-5"><div class="text-[11px] mono text-slate-500">${label}</div><div class="stat-num text-2xl font-bold mt-1 ${cls}">${money(val)}</div><div class="text-xs text-slate-500 mt-1">${sub}</div></div>`;
+  $('tab-balance').innerHTML = `
+  <div class="flex items-center justify-between mb-4 flex-wrap gap-3"><div><div class="text-lg font-bold">Balance Sheet — ${both ? 'Both hostels' : esc(BR[branch].name)}</div><div class="text-xs text-slate-500 mono">Payable and receivable by student, as of today (${esc(t.str)}).</div></div>
+    <div class="flex gap-2 flex-wrap items-center">
+      <select class="field-input" style="width:auto" data-chg="bal" data-f="scope"><option value="one" ${!both ? 'selected' : ''}>This hostel</option><option value="both" ${both ? 'selected' : ''}>Both hostels</option></select>
+      <select class="field-input" style="width:auto" data-chg="bal" data-f="show"><option value="all" ${show === 'all' ? 'selected' : ''}>Show everyone</option><option value="open" ${show === 'open' ? 'selected' : ''}>Only money pending</option></select>
+      <input class="field-input" style="width:200px" placeholder="Search name / room / phone" value="${esc(v.q)}" data-chg="balq">
+      <button class="btn text-sm px-4 py-2 rounded-md border font-semibold" data-act="bal-print">🖨 Print / PDF</button></div></div>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+    ${card('PAYABLE — WE MUST GIVE BACK', d.payable, 'text-amber-700', `Deposits we are holding. ${d.returnNow ? `<b class="text-rose-600">${money(d.returnNow)} for students who already left.</b>` : 'Nobody who left is waiting.'}`)}
+    ${card('RECEIVABLE — STUDENTS MUST PAY US', receivable, 'text-rose-600', `Monthly fees ${money(d.feeDue)} + deposits not taken ${money(d.depDue)}`)}
+    ${card('NET (RECEIVABLE − PAYABLE)', net, netCls(net), net >= 0 ? 'More is owed to us than we owe.' : 'We owe more than is owed to us.')}
+  </div>
+  <div class="card p-3 mb-5 text-xs flex flex-wrap gap-3 items-center"><b>Signs:</b> ${badge('returned')} ${badge('held')} ${badge('return-now')} ${badge('not-taken')} ${badge('none')} <span class="text-slate-400">|</span> ${badge('fee-ok')} ${badge('fee-part')} ${badge('fee-due')}</div>
+  <div class="card p-2 mb-5"><div class="font-bold px-3 pt-3 pb-1">1. Security deposits <span class="text-xs font-normal text-slate-500">— who gave a deposit, who has not, and who must get it back</span></div><div class="scroll"><table class="sheet" id="balDep"><thead><tr><th>#</th>${hcol}<th>Student</th><th>Room</th><th>Stay</th><th>Sign</th><th class="r">Deposit</th><th>Taken on</th><th>Returned on</th><th></th></tr></thead><tbody>
+  ${depRows.map((x, i) => `<tr><td>${i + 1}</td>${hcell(x.br)}${stuCell(x)}<td>${esc(x.room)}</td><td>${stayCell(x)}</td><td>${badge(x.state)}</td><td class="r">${x.state === 'none' ? '—' : money(x.amount)}</td><td>${esc(x.date) || '—'}</td><td>${esc(x.returned) || '—'}</td><td class="r noprint">${depAct(x)}</td></tr>`).join('') || `<tr><td colspan="${both ? 10 : 9}" class="text-slate-500">Nothing to show.</td></tr>`}
+  </tbody></table></div></div>
+  <div class="card p-2"><div class="font-bold px-3 pt-3 pb-1">2. Monthly fees <span class="text-xs font-normal text-slate-500">— who has paid and who still owes, up to ${monthName(t.month)} ${t.year}</span></div><div class="scroll"><table class="sheet" id="balFee"><thead><tr><th>#</th>${hcol}<th>Student</th><th>Room</th><th>Sign</th><th>Unpaid months</th><th class="r">Amount due</th><th></th></tr></thead><tbody>
+  ${feeRowsF.map((x, i) => `<tr><td>${i + 1}</td>${hcell(x.br)}${stuCell(x)}<td>${esc(x.room)}</td><td>${badge(x.state)}</td><td>${x.months.length ? x.months.map((mm) => `${monthName(mm.m)}${mm.y !== t.year ? ' ' + mm.y : ''}${mm.part ? ' (part)' : ''}`).join(', ') : '—'}</td><td class="r">${x.total ? `<b class="text-rose-600">${money(x.total)}</b>` : money(0)}</td><td class="r noprint">${x.total ? `<span class="link" data-act="bal-fee" data-br="${x.br}" data-k="${x.months[0].key}">Collect</span>` : ''}</td></tr>`).join('') || `<tr><td colspan="${both ? 8 : 7}" class="text-slate-500">Nothing to show.</td></tr>`}
+  </tbody></table></div></div>`;
+}
+function balancePrint() {
+  const w = window.open('', '_blank'); if (!w) throw new Error('Allow pop-ups to print.');
+  const t = nowBs().bs; const both = view.bal.scope === 'both';
+  const cards = [...document.querySelectorAll('#tab-balance .grid .card')].map((c) => c.outerHTML).join('');
+  const tables = ['balDep', 'balFee'].map((id) => { const el = $(id).closest('.card').cloneNode(true); el.querySelectorAll('.noprint, th:last-child').forEach((n) => { n.textContent = ''; }); return el.outerHTML; }).join('');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Balance Sheet ${esc(t.str)}</title><style>
+  body{font:12px/1.4 system-ui,Segoe UI,Arial;color:#0f172a;margin:24px}h1{font-size:18px;margin:0 0 4px}.card{border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #e2e8f0;padding:5px 6px;text-align:left;vertical-align:top}.r{text-align:right}.text-xs{font-size:11px;color:#64748b}
+  .stat-num{font-size:18px;font-weight:700}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.bal-badge{padding:1px 6px;border-radius:9px;font-size:11px;white-space:nowrap}
+  .bal-green{background:#dcfce7;color:#166534}.bal-amber{background:#fef3c7;color:#92400e}.bal-red{background:#fee2e2;color:#991b1b}.bal-grey{background:#f1f5f9;color:#475569}.text-rose-600{color:#e11d48}.text-amber-700{color:#b45309}.text-emerald-600{color:#059669}
+  </style></head><body><h1>Padma Hostel — Balance Sheet</h1><div class="text-xs">${both ? 'Both hostels' : esc(BR[branch].name)} · as of ${esc(t.str)} B.S.</div><div class="grid" style="margin:12px 0">${cards}</div>${tables}<script>onload=()=>print()<\/script></body></html>`);
+  w.document.close();
+}
+function depositModal(brId, stuId) {
+  const b = S.branches[brId]; const s = b.students.find((x) => x.id === stuId); if (!s) return;
+  const rec = s.recordId ? b.records.find((r) => r.id === s.recordId) : null;
+  modal({ title: `Receive deposit — ${s.name}`, body: `<div class="text-xs text-slate-500 mb-3">${esc(BR[brId].name)} · Room ${esc(s.room)}</div>${field('Deposit received (Rs.)', inp('amount', rec ? num(rec.deposit) || S.settings.admission.deposit : S.settings.admission.deposit, 'type="number"'))}${field('Date received (B.S.)', '<div id="depDate" class="bs-date-group"></div>')}`,
+    onOk: async (val) => {
+      const amount = num(val.amount); if (amount <= 0) return 'Enter an amount.';
+      const dt = pickers.depDate.get(); const id = uid('INC');
+      b.income.push({ id, dateBS: dt, dateAD: adOf(dt), category: DEP, description: `${s.name} — Room ${s.room} (deposit)`, amount, ref: 'dep:' + id, refundable: true, studentId: s.id });
+      await persist(); renderBalance(); toast('Deposit recorded. It shows in Income as refundable.');
+    } });
+  makePicker('depDate', nowBs().bs.str);
 }
 
 // ---------- ROOMS ----------
@@ -666,6 +797,15 @@ document.addEventListener('click', async (e) => {
       if (isFee) B().fees = B().fees.filter((f) => f.ref !== r.ref);
       await persist(); renderLedger(type); toast('Entry deleted.');
     }
+    else if (a === 'go-balance') setTab('balance');
+    else if (a === 'bal-print') balancePrint();
+    else if (a === 'bal-dep-take') depositModal(el.dataset.br, id);
+    else if (a === 'bal-dep-ret') {
+      const r = S.branches[el.dataset.br].income.find((x) => x.id === id); if (!r) return;
+      if (!r.refundedOn && !(await confirmBox('Deposit returned?', `Mark ${money(r.amount)} (${esc(r.description || '')}) as given back today?`, 'Yes, returned'))) return;
+      r.refundedOn = r.refundedOn ? '' : nowBs().bs.str; await persist(); renderBalance(); toast(r.refundedOn ? 'Marked as returned.' : 'Back to holding.');
+    }
+    else if (a === 'bal-fee') { const [y, m] = el.dataset.k.split('-').map(Number); view.fee.y = y; view.fee.m = m; if (el.dataset.br !== branch) setBranch(el.dataset.br); setTab('monthly'); }
     else if (a === 'dep-ret') { const r = B().income.find((x) => x.id === id); r.refundedOn = r.refundedOn ? '' : nowBs().bs.str; await persist(); renderLedger('income'); }
     else if (a === 'cat-add') catModal(type);
     else if (a === 'cat-del') { S.categories = S.categories.filter((c) => !(c.type === type && c.name === el.dataset.name)); await persist(); renderSettings(); }
@@ -695,6 +835,8 @@ document.addEventListener('click', async (e) => {
 });
 document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-chg]'); if (!el) return; const k = el.dataset.chg;
+  if (k === 'balq') { view.bal.q = el.value; renderBalance(); return; }
+  if (k === 'bal') { view.bal[el.dataset.f] = el.value; renderBalance(); return; }
   if (k === 'stuq') { view.stuQ = el.value; renderStudents(); const i = document.querySelector('[data-chg=stuq]'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); return; }
   const v = view[el.dataset.k]; v[el.dataset.f] = +el.value;
   if (k === 'dash') renderDashboard(); else if (k === 'fee') renderMonthly(); else if (k === 'led') renderLedger(tab);
