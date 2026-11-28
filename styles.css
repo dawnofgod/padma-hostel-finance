@@ -77,3 +77,4 @@ table.sheet tfoot td{background:var(--theme-light);font-weight:700}
 .prof-tab{border-bottom:2px solid transparent;color:#64748b}.prof-tab-on{border-bottom-color:var(--theme-main);color:#0f172a}
 .modal .p-3{padding:.75rem}
 .bill-in{width:120px;text-align:right;background:#111a2e;border:1px solid #334155;color:#fff;border-radius:6px;padding:4px 8px}.bill-in:focus{outline:2px solid #fbbf24}.bill-in.bill-changed{border-color:#4ade80}.bill-note{width:100%;background:#111a2e;border:1px solid #334155;color:#fff;border-radius:6px;padding:5px 8px;font-size:12px}
+.bill-in[readonly]{background:transparent;border-color:transparent;cursor:default}.bill-in[readonly]:focus{outline:none}.bill-edit{font-size:12px;border:1px solid #475569;color:#e2e8f0;border-radius:6px;padding:3px 10px}.bill-edit.on{background:#fbbf24;color:#0b1220;border-color:#fbbf24;font-weight:600}

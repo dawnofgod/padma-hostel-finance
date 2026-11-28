@@ -516,7 +516,12 @@ function calcBill() {
   $('calcTotal').textContent = money(total);
   return { ...v, disc };
 }
-function resetBill() { ['billAdm', 'billForm', 'billBed', 'billDep'].forEach((k) => { $(k).dataset.touched = ''; }); $('admDeposit').dataset.touched = ''; $('billDiscNote').value = ''; calcBill(); }
+function lockBill(lock) {
+  ['billAdm', 'billDep', 'billForm', 'billBed'].forEach((k) => { $(k).readOnly = lock; });
+  $('billEdit').textContent = lock ? '✏ Edit' : '✔ Done'; $('billEdit').classList.toggle('on', !lock);
+  if (!lock) $('billAdm').focus();
+}
+function resetBill() { lockBill(true); ['billAdm', 'billForm', 'billBed', 'billDep'].forEach((k) => { $(k).dataset.touched = ''; }); $('admDeposit').dataset.touched = ''; $('billDiscNote').value = ''; calcBill(); }
 function clearAdmission() {
   document.querySelectorAll('#tab-admission input[type=text], #tab-admission input:not([type]), #tab-admission input[type=number]').forEach((i) => { if (!['admMonthlyRent', 'admDeposit'].includes(i.id)) i.value = ''; });
   $('admBloodGroup').value = ''; photoData = ''; resetScan(); $('photoPreview').classList.add('hidden'); $('photoPlaceholder').classList.remove('hidden');
@@ -925,6 +930,7 @@ function initApp() {
   ['billAdm', 'billForm', 'billBed'].forEach((k) => { $(k).oninput = () => { $(k).dataset.touched = '1'; calcBill(); }; });
   $('billDep').oninput = () => { $('billDep').dataset.touched = '1'; $('admDeposit').value = $('billDep').value; $('admDeposit').dataset.touched = '1'; calcBill(); };
   $('billReset').onclick = resetBill;
+  $('billEdit').onclick = () => lockBill(!$('billAdm').readOnly);
   $('photoBox').onclick = () => $('admPhotoInput').click(); $('admPhotoInput').onchange = (e) => readPhoto(e.target.files[0]);
   $('admClearBtn').onclick = clearAdmission; $('admSaveBtn').onclick = saveAdmission;
 $('scanBtn').onclick = () => { const fi = $('scanInput'); fi.value = ''; fi.click(); };
