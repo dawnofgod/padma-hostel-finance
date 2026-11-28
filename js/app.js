@@ -440,7 +440,7 @@ function depositModal(brId, stuId) {
 function renderRooms() {
   const b = B();
   const beds = b.rooms.reduce((a, r) => a + r.beds.length, 0), occ = b.rooms.reduce((a, r) => a + r.beds.filter((x) => x.name).length, 0);
-  $('tab-rooms').innerHTML = `<div class="flex items-center justify-between mb-4 flex-wrap gap-2"><div><div class="text-lg font-bold">Room Watching — ${esc(BR[branch].name)}</div><div class="text-xs text-slate-500 mono">${occ} of ${beds} beds occupied · ${beds - occ} free · click a bed to manage it</div></div><button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="room-add">＋ Add room</button></div>
+  $('tab-rooms').innerHTML = `<div class="flex items-center justify-between mb-4 flex-wrap gap-2"><div><div class="text-lg font-bold">Room Watching — ${esc(BR[branch].name)}</div><div class="text-xs text-slate-500 mono">${occ} of ${beds} beds occupied · ${beds - occ} free · click a bed to manage it</div></div><div class="flex gap-2"><button class="btn text-sm px-4 py-2 rounded-md border border-slate-300 bg-white font-semibold" data-act="rooms-manage">🗂 Manage rooms</button><button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="room-add">＋ Add room</button></div></div>
   <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">${b.rooms.map((r) => {
     const free = r.beds.filter((x) => !x.name).length;
     return `<div class="card p-4"><div class="flex justify-between items-start mb-2"><div><div class="font-bold">${esc(r.label)}</div><div class="text-[11px] mono text-slate-500">${r.beds.length} Bed room · ${money(bedPrice(r.beds.length))}/month</div></div><div class="flex gap-2 items-center"><span class="chip" style="background:${free ? '#d1fae5' : '#ffe4e6'};color:${free ? '#065f46' : '#9f1239'}">${free ? free + ' free' : 'Full'}</span><span class="link" data-act="room-edit" data-id="${esc(r.id)}">Edit</span></div></div>
@@ -484,6 +484,29 @@ function roomModal(id) {
     if (r.beds.some((x) => x.name)) { toast('Vacate all beds first.', true); return; }
     B().rooms = B().rooms.filter((x) => x.id !== r.id); await persist(); $('modalRoot').innerHTML = ''; renderRooms(); fillRoomSelect();
   };
+}
+
+// Keep or remove many rooms at once — only in the hostel that is open now.
+function roomsManage() {
+  const rooms = B().rooms; const name = BR[branch].name; const other = Object.keys(BR).filter((x) => x !== branch).map((x) => BR[x].name).join(', ');
+  const rowsHtml = rooms.map((r, i) => { const used = r.beds.filter((x) => x.name).length; return `<label class="flex items-center gap-3 py-1.5 border-b border-slate-100 text-sm"><input type="checkbox" class="rm-keep" data-id="${esc(r.id)}" checked ${used ? 'disabled' : ''}><span class="w-6 text-slate-400">${i + 1}</span><b class="flex-1">${esc(r.label)}</b><span class="text-xs text-slate-500">${r.beds.length} beds</span><span class="text-xs ${used ? 'text-rose-600' : 'text-emerald-600'}" style="width:110px;text-align:right">${used ? used + ' occupied — keep' : 'empty'}</span></label>`; }).join('');
+  modal({ title: `Manage rooms — ${name}`, wide: 620, ok: 'Save', body: `<p class="text-xs text-slate-500 mb-3">Untick the rooms you don't have in <b>${esc(name)}</b>. Only this hostel changes — ${esc(other)} stays the same. Rooms with students in them can't be removed.</p>
+    <div class="flex items-center gap-2 mb-3 text-sm flex-wrap"><span>Quick:</span> keep only the first <input id="rmN" type="number" min="0" max="${rooms.length}" value="${rooms.length}" class="field-input" style="width:80px"> rooms <button type="button" class="btn px-3 py-1.5 rounded-md border border-slate-300 text-sm" id="rmApply">Apply</button> <span class="link" id="rmAll">tick all</span></div>
+    <div style="max-height:50vh;overflow:auto">${rowsHtml || '<p class="text-sm text-slate-500">No rooms yet.</p>'}</div><p id="rmCount" class="text-sm font-semibold mt-3"></p>`,
+    onOk: async () => {
+      const drop = [...document.querySelectorAll('.rm-keep')].filter((c) => !c.checked && !c.disabled).map((c) => c.dataset.id);
+      if (!drop.length) return true;
+      const keep = rooms.length - drop.length;
+      $('modalRoot').innerHTML = '';
+      if (!(await confirmBox('Remove rooms?', `${drop.length} empty room(s) will be removed from ${name}. ${keep} room(s) will stay. ${other} is not changed.`, 'Remove'))) return true;
+      B().rooms = rooms.filter((r) => !drop.includes(r.id)); await persist(); renderRooms(); fillRoomSelect(); toast(`${name}: ${keep} rooms now.`);
+      return true;
+    } });
+  const count = () => { const k = [...document.querySelectorAll('.rm-keep')].filter((c) => c.checked).length; $('rmCount').textContent = `${name} will have ${k} room(s).`; };
+  document.querySelectorAll('.rm-keep').forEach((c) => { c.onchange = count; });
+  $('rmApply').onclick = () => { const n = num($('rmN').value); document.querySelectorAll('.rm-keep').forEach((c, i) => { if (!c.disabled) c.checked = i < n; }); count(); };
+  $('rmAll').onclick = () => { document.querySelectorAll('.rm-keep').forEach((c) => { c.checked = true; }); count(); };
+  count();
 }
 
 // ---------- ADMISSION ----------
@@ -843,6 +866,7 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]'); if (!el) return; const a = el.dataset.act; const id = el.dataset.id; const type = el.dataset.type;
   try {
     if (a === 'room-add') roomModal(null);
+    else if (a === 'rooms-manage') roomsManage();
     else if (a === 'room-edit') roomModal(id);
     else if (a === 'bed') bedModal(id, +el.dataset.i);
     else if (a === 'adm-pdf') await P.openAdmission(token, branch, id);
