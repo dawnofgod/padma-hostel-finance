@@ -6,7 +6,7 @@
 'use strict';
 (function () {
   const { dates, logic, db, reports } = window.PadmaCore;
-  const APP_VERSION = '5.5.3';
+  const APP_VERSION = '5.5.4';
   const BACKUP_DIR = 'Backup';
   const BACKUP_FILE = 'padma-data.json';
 
@@ -520,12 +520,27 @@
       hasToken: async () => !!(await tok()),
     };
   })();
-  setInterval(() => { if (!document.hidden) Client.ping(); }, 120000);
+  setInterval(() => { if (!document.hidden) Client.ping().then(firstDriveBackup).catch(() => {}); }, 120000);
+  // When Drive becomes available (admin connected it) and this device has never put its backup there, do it now.
+  async function firstDriveBackup() {
+    try {
+      const i = await Client.info();
+      if (!i.driveReady || i.lastBackup || !state || !navigator.onLine) return;
+      await GDrive.backupOnly();
+    } catch (e) { console.warn('first Drive backup failed', e); }
+  }
+  setTimeout(firstDriveBackup, 15000);
   window.addEventListener('online', () => Client.ping());
 
   // ---------------- Google Drive backup (owner's Drive, one folder per person) ----------------
   const GDrive = (() => {
-    const isConnected = async () => { const i = await Client.info(); return i.signedIn && i.onboarded && i.driveReady; };
+    // The phone/laptop remembers whether Drive is connected; if it says "no", ask the server once more
+    // (the admin may have just connected Drive) before giving up.
+    const isConnected = async () => {
+      let i = await Client.info();
+      if (i.signedIn && i.onboarded && !i.driveReady && navigator.onLine) { try { await Client.ping(); } catch { /* offline */ } i = await Client.info(); }
+      return i.signedIn && i.onboarded && i.driveReady;
+    };
     async function upload(rel, blob, mime) {
       const { uploadUrl } = await Client.call({ action: 'start', path: rel, mime, size: blob.size });
       let r;
