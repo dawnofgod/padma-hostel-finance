@@ -14,7 +14,7 @@ const isRef = (r) => !!r.refundable || r.category === DEP;
 const ym = (d) => String(d || '').slice(0, 7);
 
 let token = null, S = null, branch = 'PHB-01', tab = 'dashboard', STATUS = {}, INFO = {};
-const view = { dash: { y: 0, m: 0 }, fee: { y: 0, m: 0 }, inc: { y: 0, m: 0 }, exp: { y: 0, m: 0 }, stuQ: '', bal: { scope: 'one', q: '', show: 'all' } };
+const view = { dash: { y: 0, m: 0 }, fee: { y: 0, m: 0 }, inc: { y: 0, m: 0 }, exp: { y: 0, m: 0 }, stuQ: '', bal: { scope: 'one', q: '', show: 'all' }, incStu: '' };
 let photoData = '', lastAdm = null;
 const pickers = {};
 
@@ -34,7 +34,7 @@ function toast(msg, bad) {
 }
 function modal({ title, body, ok = 'Save', cancel = 'Cancel', onOk, wide, onCancel }) {
   const root = $('modalRoot');
-  root.innerHTML = `<div class="modal-back"><div class="modal" ${wide ? 'style="max-width:680px"' : ''}><h3>${esc(title)}</h3><div id="mBody">${body}</div><div id="mErr" class="text-xs text-rose-600 mt-2 hidden"></div><div class="flex justify-end gap-2 mt-5">${cancel ? '<button class="btn px-4 py-2 rounded-md border border-slate-300 bg-white text-sm" id="mCancel">' + esc(cancel) + '</button>' : ''}<button class="btn px-4 py-2 rounded-md text-white text-sm font-semibold dynamic-bg" id="mOk">${esc(ok)}</button></div></div></div>`;
+  root.innerHTML = `<div class="modal-back"><div class="modal" ${wide ? `style="max-width:${typeof wide === 'number' ? wide : 680}px"` : ''}><h3>${esc(title)}</h3><div id="mBody">${body}</div><div id="mErr" class="text-xs text-rose-600 mt-2 hidden"></div><div class="flex justify-end gap-2 mt-5">${cancel ? '<button class="btn px-4 py-2 rounded-md border border-slate-300 bg-white text-sm" id="mCancel">' + esc(cancel) + '</button>' : ''}<button class="btn px-4 py-2 rounded-md text-white text-sm font-semibold dynamic-bg" id="mOk">${esc(ok)}</button></div></div></div>`;
   const close = () => { root.innerHTML = ''; };
   const first = root.querySelector('input,select'); if (first) first.focus();
   if ($('mCancel')) $('mCancel').onclick = () => { close(); if (onCancel) onCancel(); };
@@ -261,6 +261,52 @@ function renderDashboard() {
 }
 
 
+
+// ---------- STUDENT PROFILE (admission form + every payment) ----------
+function studentOfEntry(b, r) {
+  if (r.studentId) return r.studentId;
+  const ref = String(r.ref || '');
+  if (ref.startsWith('adm:')) { const rec = b.records.find((x) => x.id === ref.slice(4)); return rec ? rec.studentId : ''; }
+  if (ref.startsWith('fee:')) { const f = b.fees.find((x) => x.ref === ref); return f ? f.studentId : ''; }
+  return '';
+}
+const entriesOf = (b, stuId) => b.income.filter((r) => studentOfEntry(b, r) === stuId).sort((a, c) => (a.dateBS < c.dateBS ? -1 : a.dateBS > c.dateBS ? 1 : 0));
+const ADM_FIELDS = [
+  ['Student', [['name', 'Full name'], ['nameNepali', 'Name (Nepali)'], ['dob', 'Date of birth'], ['bloodGroup', 'Blood group'], ['whatsapp', 'WhatsApp / phone'], ['email', 'Email'], ['citizenship', 'Citizenship no.'], ['health', 'Health notes'], ['foodPreference', 'Food']]],
+  ['Address', [['district', 'District'], ['municipality', 'Municipality'], ['ward', 'Ward'], ['street', 'Street / tole']]],
+  ['Study', [['institute', 'College / institute'], ['level', 'Level'], ['shift', 'Shift']]],
+  ['Family & guardian', [['fatherName', 'Father'], ['fatherPhone', 'Father phone'], ['fatherOccupation', 'Father occupation'], ['motherName', 'Mother'], ['motherPhone', 'Mother phone'], ['motherOccupation', 'Mother occupation'], ['guardianName', 'Guardian'], ['relation', 'Relation'], ['emergencyPhone', 'Emergency phone'], ['occupation', 'Guardian occupation'], ['guardianAddress', 'Guardian address']]],
+  ['Hostel', [['formNo', 'Form no.'], ['bookingDate', 'Booking date'], ['admissionDate', 'Admission date'], ['roomLabel', 'Room'], ['roomNo', 'Bed'], ['stayDuration', 'Planned stay'], ['approvedBy', 'Approved by']]],
+];
+function studentProfile(brId, stuId, startTab) {
+  const b = S.branches[brId]; const s = b.students.find((x) => x.id === stuId); if (!s) { toast('This student is no longer in the list.', true); return; }
+  const rec = s.recordId ? b.records.find((r) => r.id === s.recordId) : null;
+  const rows = entriesOf(b, s.id);
+  const bal = balanceRows(brId); const dep = bal.dep.filter((x) => x.s && x.s.id === s.id); const fee = bal.fee.find((x) => x.s.id === s.id);
+  const paidNonDep = sumOf(rows.filter((r) => !isRef(r)));
+  const depState = dep.length ? dep[0].state : 'none';
+  const feeState = !fee || !fee.total ? 'fee-ok' : fee.months.every((x) => x.part) ? 'fee-part' : 'fee-due';
+  const kv = (k, v) => `<div><div class="text-[11px] mono text-slate-500">${esc(k)}</div><div class="text-sm font-medium">${esc(v)}</div></div>`;
+  const details = rec ? ADM_FIELDS.map(([h, fs]) => { const got = fs.filter(([k]) => String(rec[k] || '').trim()); return got.length ? `<div class="font-bold text-sm mt-4 mb-2">${h}</div><div class="grid grid-cols-2 md:grid-cols-3 gap-3">${got.map(([k, l]) => kv(l, rec[k])).join('')}</div>` : ''; }).join('') +
+    `<div class="font-bold text-sm mt-4 mb-2">Joining bill</div><div class="grid grid-cols-2 md:grid-cols-4 gap-3">${kv('Admission fee', money(rec.admissionFee))}${kv('Form fee', money(rec.formFee))}${kv('Deposit', money(rec.deposit))}${kv('Monthly fee', money(rec.bedFee))}</div>
+     <div class="mt-4"><span class="link" data-act="prof-pdf" data-br="${brId}" data-id="${esc(rec.id)}">📄 Open admission form (PDF)</span></div>`
+    : `<div class="text-sm text-slate-500 mt-3">No admission form — this student was added by hand in Students.</div><div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">${kv('Name', s.name)}${kv('Phone', s.phone || '—')}${kv('Room', s.room)}</div>`;
+  const pays = `<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 mb-3">
+      <div class="card p-3"><div class="text-[11px] mono text-slate-500">TOTAL PAID (NOT COUNTING DEPOSIT)</div><div class="stat-num text-lg font-bold text-emerald-600">${money(paidNonDep)}</div></div>
+      <div class="card p-3"><div class="text-[11px] mono text-slate-500">DEPOSIT</div><div class="mt-1">${badge(depState)}</div><div class="text-xs text-slate-500 mt-1">${dep.length && depState !== 'not-taken' ? money(dep[0].amount) : ''}</div></div>
+      <div class="card p-3"><div class="text-[11px] mono text-slate-500">MONTHLY FEE</div><div class="mt-1">${badge(feeState)}</div><div class="text-xs text-slate-500 mt-1">${fee && fee.total ? `${money(fee.total)} due · ${fee.months.map((m) => monthName(m.m)).join(', ')}` : 'Nothing due'}</div></div></div>
+    <div class="scroll"><table class="sheet"><thead><tr><th>#</th><th>Date (B.S.)</th><th>What</th><th>Details</th><th class="r">Amount</th></tr></thead><tbody>
+    ${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.dateBS)}</td><td>${esc(r.category)}${isRef(r) ? ` <span class="bal-badge ${r.refundedOn ? 'bal-green' : 'bal-blue'}">${r.refundedOn ? 'returned ' + esc(r.refundedOn) : 'refundable'}</span>` : ''}</td><td>${esc(r.description)}</td><td class="r">${money(r.amount)}</td></tr>`).join('') || '<tr><td colspan="5" class="text-slate-500">No payments recorded yet.</td></tr>'}
+    </tbody></table></div>`;
+  const head = `<div class="flex items-center gap-4 mb-2">${rec && rec.photo ? `<img src="${esc(rec.photo)}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:10px">` : ''}<div><div class="text-lg font-bold">${esc(s.name)}</div><div class="text-xs text-slate-500">${esc(BR[brId].name)} · Room ${esc(s.room)} · ${s.bed} Bed · ${money(s.fee)}/month · ${s.active === '1' ? 'Staying since ' + esc(s.since) : 'Left ' + esc(s.until)}</div></div></div>
+    <div class="flex gap-2 border-b mb-1"><button class="prof-tab px-3 py-2 text-sm font-semibold" data-pt="det">Admission details</button><button class="prof-tab px-3 py-2 text-sm font-semibold" data-pt="pay">Payments</button></div>`;
+  modal({ title: 'Student profile', wide: 900, cancel: '', ok: 'Close', body: head + `<div id="ptDet">${details}</div><div id="ptPay" class="hidden">${pays}</div>` });
+  const show = (k) => { $('ptDet').classList.toggle('hidden', k !== 'det'); $('ptPay').classList.toggle('hidden', k !== 'pay'); document.querySelectorAll('.prof-tab').forEach((x) => x.classList.toggle('prof-tab-on', x.dataset.pt === k)); };
+  document.querySelectorAll('.prof-tab').forEach((x) => { x.onclick = () => show(x.dataset.pt); });
+  show(startTab || 'det');
+}
+const stuLink = (br, id, name, tabName) => (id ? `<span class="link" data-act="stu-view" data-br="${br}" data-id="${esc(id)}"${tabName ? ` data-pt="${tabName}"` : ''}>${esc(name)}</span>` : esc(name));
+
 // ---------- BALANCE SHEET ----------
 // Who you owe (deposits to give back) and who owes you (deposits not taken, unpaid monthly fees), by student.
 const depositsOf = (b, s) => b.income.filter((r) => isRef(r) && (r.studentId === s.id || (s.recordId && r.ref === 'adm:' + s.recordId)));
@@ -336,7 +382,7 @@ function renderBalance() {
   const feeRowsF = d.fee.filter((x) => show === 'all' || (show === 'open' && x.total > 0));
   const hcol = both ? '<th>Hostel</th>' : '';
   const hcell = (br) => (both ? `<td>${esc(BR[br].name.replace('Padma ', ''))}</td>` : '');
-  const stuCell = (x) => `<td><b>${esc(x.name)}</b>${x.phone ? `<div class="text-xs text-slate-500">${esc(x.phone)}</div>` : ''}</td>`;
+  const stuCell = (x) => `<td><b>${x.s ? stuLink(x.br, x.s.id, x.name, 'pay') : esc(x.name)}</b>${x.phone ? `<div class="text-xs text-slate-500">${esc(x.phone)}</div>` : ''}</td>`;
   const depAct = (x) => {
     if (x.state === 'not-taken' || x.state === 'none') return x.s ? `<span class="link" data-act="bal-dep-take" data-br="${x.br}" data-id="${esc(x.s.id)}">Receive deposit</span>` : '';
     if (x.state === 'returned') return `<span class="link" data-act="bal-dep-ret" data-br="${x.br}" data-id="${esc(x.r.id)}">Undo</span>`;
@@ -626,7 +672,7 @@ function renderStudents() {
   const list = b.students.filter((s) => !q || (s.name + ' ' + s.phone + ' ' + s.room).toLowerCase().includes(q)).sort((a, c) => a.name.localeCompare(c.name));
   $('tab-students').innerHTML = `<div class="flex items-center justify-between mb-4 flex-wrap gap-2"><div><div class="text-lg font-bold">Students — ${esc(BR[branch].name)}</div><div class="text-xs text-slate-500 mono">${b.students.filter((s) => s.active === '1').length} active · ${b.students.length} total</div></div><div class="flex gap-2"><input class="field-input" style="width:220px" placeholder="Search name / phone / room" value="${esc(view.stuQ)}" data-chg="stuq"><button class="btn text-white text-sm px-4 py-2 rounded-md dynamic-bg font-semibold" data-act="stu-add">＋ Add student</button></div></div>
   <div class="card p-2"><div class="scroll"><table class="sheet"><thead><tr><th>#</th><th>Name</th><th>Phone</th><th>Room</th><th>Bed type</th><th class="r">Monthly fee</th><th>Since</th><th>Status</th><th></th></tr></thead><tbody>
-  ${list.map((s, i) => `<tr><td>${i + 1}</td><td>${esc(s.name)}</td><td>${esc(s.phone)}</td><td>${esc(s.room)}</td><td>${s.bed} Bed</td><td class="r">${money(s.fee)}</td><td>${esc(s.since)}</td><td>${s.active === '1' ? '<span class="tag tag-paid">Active</span>' : '<span class="tag tag-unpaid">Left ' + esc(s.until) + '</span>'}</td><td class="r"><span class="link" data-act="stu-edit" data-id="${esc(s.id)}">Edit</span> &nbsp; <span class="link" data-act="stu-toggle" data-id="${esc(s.id)}">${s.active === '1' ? 'Mark left' : 'Re-activate'}</span> &nbsp; <span class="link link-red" data-act="stu-del" data-id="${esc(s.id)}">Delete</span></td></tr>`).join('') || '<tr><td colspan="9" class="text-slate-500">No students. Admit one from the Admissions tab, or add manually.</td></tr>'}
+  ${list.map((s, i) => `<tr><td>${i + 1}</td><td>${stuLink(branch, s.id, s.name)}</td><td>${esc(s.phone)}</td><td>${esc(s.room)}</td><td>${s.bed} Bed</td><td class="r">${money(s.fee)}</td><td>${esc(s.since)}</td><td>${s.active === '1' ? '<span class="tag tag-paid">Active</span>' : '<span class="tag tag-unpaid">Left ' + esc(s.until) + '</span>'}</td><td class="r"><span class="link" data-act="stu-edit" data-id="${esc(s.id)}">Edit</span> &nbsp; <span class="link" data-act="stu-toggle" data-id="${esc(s.id)}">${s.active === '1' ? 'Mark left' : 'Re-activate'}</span> &nbsp; <span class="link link-red" data-act="stu-del" data-id="${esc(s.id)}">Delete</span></td></tr>`).join('') || '<tr><td colspan="9" class="text-slate-500">No students. Admit one from the Admissions tab, or add manually.</td></tr>'}
   </tbody></table></div></div>`;
 }
 function studentModal(id, pre) {
@@ -678,10 +724,15 @@ function payModal(stuId) {
 function catsOf(type) { return S.categories.filter((c) => c.type === type).map((c) => c.name); }
 function renderLedger(type) {
   const inc = type === 'income'; const b = B(); const key = inc ? 'inc' : 'exp'; const v = view[key]; const t = nowBs().bs; if (!v.y) { v.y = t.year; v.m = t.month; }
-  const rows = b[type].filter((r) => { const p = D.parse(r.dateBS); return p && p.year === v.y && (!v.m || p.month === v.m); }).sort((a, c) => (a.dateBS === c.dateBS ? 0 : a.dateBS < c.dateBS ? -1 : 1));
+  if (inc && view.incStu && !b.students.some((x) => x.id === view.incStu)) view.incStu = '';
+  const pick = inc ? view.incStu : '';
+  const rows = b[type].filter((r) => { if (pick) return studentOfEntry(b, r) === pick; const p = D.parse(r.dateBS); return p && p.year === v.y && (!v.m || p.month === v.m); }).sort((a, c) => (a.dateBS === c.dateBS ? 0 : a.dateBS < c.dateBS ? -1 : 1));
+  const pickStu = pick ? b.students.find((x) => x.id === pick) : null;
+  const stuSel = inc ? `<select class="field-input" style="width:auto;max-width:240px" data-chg="incstu"><option value="">All students</option>${[...b.students].sort((a, c) => a.name.localeCompare(c.name)).map((x) => `<option value="${esc(x.id)}" ${x.id === pick ? 'selected' : ''}>${esc(x.name)} · ${esc(x.room)}</option>`).join('')}</select>` : '';
   const total = sumOf(inc ? rows.filter((r) => !isRef(r)) : rows); const dep = inc ? sumOf(rows.filter(isRef)) : 0;
   const cats = catsOf(type); const el = $('tab-' + type);
-  el.innerHTML = `<div class="flex items-center justify-between mb-4 flex-wrap gap-2"><div><div class="text-lg font-bold">${inc ? 'Income' : 'Expenditure'} Ledger — ${esc(BR[branch].name)}</div><div class="text-xs text-slate-500 mono">${inc ? 'Refundable deposits are listed but not counted as revenue.' : 'Choose the particulars from the list or add a new one.'}</div></div><div class="flex gap-2">${monthPicker(key, true, 'led')}</div></div>
+  el.innerHTML = `<div class="flex items-center justify-between mb-4 flex-wrap gap-2"><div><div class="text-lg font-bold">${inc ? 'Income' : 'Expenditure'} Ledger — ${esc(BR[branch].name)}</div><div class="text-xs text-slate-500 mono">${inc ? 'Refundable deposits are listed but not counted as revenue.' : 'Choose the particulars from the list or add a new one.'}</div></div><div class="flex gap-2 flex-wrap">${stuSel}${pick ? '' : monthPicker(key, true, 'led')}</div></div>
+  ${pickStu ? `<div class="card p-3 mb-4 text-sm flex flex-wrap gap-3 items-center"><b>Showing every payment of ${esc(pickStu.name)}</b> (all dates) — total ${money(sumOf(rows.filter((r) => !isRef(r))))}${sumOf(rows.filter(isRef)) ? ` + deposit ${money(sumOf(rows.filter(isRef)))}` : ''}. ${stuLink(branch, pickStu.id, 'Open full profile →', 'pay')} <span class="link" data-act="incstu-clear">Show all entries</span></div>` : ''}
   <div class="card p-4 mb-4"><div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
     <div class="md:col-span-3"><label class="field-label">DATE (B.S.)</label><div id="${type}Date" class="bs-date-group"></div></div>
     <div class="md:col-span-3"><label class="field-label">${inc ? 'CATEGORY' : 'PARTICULARS'}</label><div class="flex gap-1"><select id="${type}Cat" class="field-input">${cats.map((c) => `<option>${esc(c)}</option>`).join('')}</select><button class="btn px-2 rounded-md border border-slate-300 bg-white" data-act="cat-add" data-type="${type}" title="Add a new one">＋</button></div></div>
@@ -689,8 +740,8 @@ function renderLedger(type) {
     <div class="md:col-span-2"><label class="field-label">AMOUNT (Rs.)</label><input id="${type}Amt" type="number" min="0" class="field-input"></div>
     <div class="md:col-span-1"><button class="btn w-full text-white py-2 rounded-md dynamic-bg font-semibold" data-act="led-add" data-type="${type}">Add</button></div></div></div>
   <div class="card p-2"><div class="scroll"><table class="sheet"><thead><tr><th>#</th><th>Date (B.S.)</th><th>Date (A.D.)</th><th>${inc ? 'Category' : 'Particulars'}</th><th>Details</th><th class="r">Amount</th><th></th></tr></thead><tbody>
-  ${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.dateBS)}</td><td>${esc(r.dateAD)}</td><td>${esc(r.category)}${inc && isRef(r) ? ` <span class="tag tag-part">refundable${r.refundedOn ? ' · returned ' + esc(r.refundedOn) : ''}</span>` : ''}</td><td>${esc(r.description)}</td><td class="r">${money(r.amount)}</td><td class="r">${r.ref ? '<span class="text-xs text-slate-400" title="Created by Monthly Fee / Admission">auto</span> &nbsp; ' : ''}${inc && isRef(r) ? `<span class="link" data-act="dep-ret" data-id="${esc(r.id)}">${r.refundedOn ? 'Un-mark' : 'Mark returned'}</span> &nbsp; ` : ''}${r.ref ? '' : `<span class="link" data-act="led-edit" data-type="${type}" data-id="${esc(r.id)}">Edit</span> &nbsp; `}<span class="link link-red" data-act="led-del" data-type="${type}" data-id="${esc(r.id)}">Delete</span></td></tr>`).join('') || '<tr><td colspan="7" class="text-slate-500">No entries for this period.</td></tr>'}
-  </tbody><tfoot><tr><td colspan="5">Total${inc ? ' revenue' : ''} — ${v.m ? monthName(v.m) + ' ' : ''}${v.y}${dep ? ` &nbsp;<span class="text-xs font-normal">(+ ${money(dep)} refundable deposits not counted)</span>` : ''}</td><td class="r">${money(total)}</td><td></td></tr></tfoot></table></div></div>`;
+  ${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.dateBS)}</td><td>${esc(r.dateAD)}</td><td>${esc(r.category)}${inc && isRef(r) ? ` <span class="tag tag-part">refundable${r.refundedOn ? ' · returned ' + esc(r.refundedOn) : ''}</span>` : ''}</td><td>${inc && studentOfEntry(b, r) ? `<span class="link" data-act="incstu-pick" data-id="${esc(studentOfEntry(b, r))}" title="Show all payments of this student">${esc(r.description)}</span>` : esc(r.description)}</td><td class="r">${money(r.amount)}</td><td class="r">${r.ref ? '<span class="text-xs text-slate-400" title="Created by Monthly Fee / Admission">auto</span> &nbsp; ' : ''}${inc && isRef(r) ? `<span class="link" data-act="dep-ret" data-id="${esc(r.id)}">${r.refundedOn ? 'Un-mark' : 'Mark returned'}</span> &nbsp; ` : ''}${r.ref ? '' : `<span class="link" data-act="led-edit" data-type="${type}" data-id="${esc(r.id)}">Edit</span> &nbsp; `}<span class="link link-red" data-act="led-del" data-type="${type}" data-id="${esc(r.id)}">Delete</span></td></tr>`).join('') || '<tr><td colspan="7" class="text-slate-500">No entries for this period.</td></tr>'}
+  </tbody><tfoot><tr><td colspan="5">Total${inc ? ' revenue' : ''} — ${pickStu ? esc(pickStu.name) : (v.m ? monthName(v.m) + ' ' : '') + v.y}${dep ? ` &nbsp;<span class="text-xs font-normal">(+ ${money(dep)} refundable deposits not counted)</span>` : ''}</td><td class="r">${money(total)}</td><td></td></tr></tfoot></table></div></div>`;
   const keep = pickers[type + 'Date'] ? pickers[type + 'Date'].get() : null;
   makePicker(type + 'Date', keep || t.year + '-' + pad(t.month) + '-' + pad(t.day));
 }
@@ -798,6 +849,10 @@ document.addEventListener('click', async (e) => {
       await persist(); renderLedger(type); toast('Entry deleted.');
     }
     else if (a === 'go-balance') setTab('balance');
+    else if (a === 'stu-view') studentProfile(el.dataset.br || branch, id, el.dataset.pt);
+    else if (a === 'prof-pdf') { $('modalRoot').innerHTML = ''; await P.openAdmission(token, el.dataset.br, id); }
+    else if (a === 'incstu-pick') { view.incStu = id; renderLedger('income'); }
+    else if (a === 'incstu-clear') { view.incStu = ''; renderLedger('income'); }
     else if (a === 'bal-print') balancePrint();
     else if (a === 'bal-dep-take') depositModal(el.dataset.br, id);
     else if (a === 'bal-dep-ret') {
@@ -835,6 +890,7 @@ document.addEventListener('click', async (e) => {
 });
 document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-chg]'); if (!el) return; const k = el.dataset.chg;
+  if (k === 'incstu') { view.incStu = el.value; renderLedger('income'); return; }
   if (k === 'balq') { view.bal.q = el.value; renderBalance(); return; }
   if (k === 'bal') { view.bal[el.dataset.f] = el.value; renderBalance(); return; }
   if (k === 'stuq') { view.stuQ = el.value; renderStudents(); const i = document.querySelector('[data-chg=stuq]'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); return; }
