@@ -288,7 +288,7 @@ function studentProfile(brId, stuId, startTab) {
   const feeState = !fee || !fee.total ? 'fee-ok' : fee.months.every((x) => x.part) ? 'fee-part' : 'fee-due';
   const kv = (k, v) => `<div><div class="text-[11px] mono text-slate-500">${esc(k)}</div><div class="text-sm font-medium">${esc(v)}</div></div>`;
   const details = rec ? ADM_FIELDS.map(([h, fs]) => { const got = fs.filter(([k]) => String(rec[k] || '').trim()); return got.length ? `<div class="font-bold text-sm mt-4 mb-2">${h}</div><div class="grid grid-cols-2 md:grid-cols-3 gap-3">${got.map(([k, l]) => kv(l, rec[k])).join('')}</div>` : ''; }).join('') +
-    `<div class="font-bold text-sm mt-4 mb-2">Joining bill</div><div class="grid grid-cols-2 md:grid-cols-4 gap-3">${kv('Admission fee', money(rec.admissionFee))}${kv('Form fee', money(rec.formFee))}${kv('Deposit', money(rec.deposit))}${kv('Monthly fee', money(rec.bedFee))}</div>
+    `<div class="font-bold text-sm mt-4 mb-2">Joining bill</div><div class="grid grid-cols-2 md:grid-cols-4 gap-3">${kv('Admission fee', money(rec.admissionFee))}${kv('Form fee', money(rec.formFee))}${kv('Deposit', money(rec.deposit))}${kv('First month fee', money(rec.bedFee))}${num(rec.discount) ? kv('Discount given', money(rec.discount) + (rec.discountNote ? ' — ' + rec.discountNote : '')) : ''}</div>
      <div class="mt-4"><span class="link" data-act="prof-pdf" data-br="${brId}" data-id="${esc(rec.id)}">📄 Open admission form (PDF)</span></div>`
     : `<div class="text-sm text-slate-500 mt-3">No admission form — this student was added by hand in Students.</div><div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-3">${kv('Name', s.name)}${kv('Phone', s.phone || '—')}${kv('Room', s.room)}</div>`;
   const pays = `<div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 mb-3">
@@ -499,16 +499,28 @@ function onRoomChange() {
   bs.innerHTML = room.beds.map((x, i) => (x.name ? '' : `<option value="${i}">Bed ${i + 1}</option>`)).join('');
   $('admMonthlyRent').value = bedPrice(room.beds.length); calcBill();
 }
+// Joining bill: standard rates from Settings, but every amount can be changed here (discount).
 function calcBill() {
-  const a = num(S.settings.admission.admissionFee), f = num(S.settings.admission.formFee);
-  if (document.activeElement !== $('admDeposit') && $('admDeposit').dataset.touched !== '1') $('admDeposit').value = S.settings.admission.deposit;
-  const dep = num($('admDeposit').value), rent = num($('admMonthlyRent').value);
-  $('calcAdm').textContent = money(a); $('calcDep').textContent = money(dep); $('calcForm').textContent = money(f); $('calcBed').textContent = money(rent); $('calcTotal').textContent = money(a + dep + f + rent);
+  const st = S.settings.admission; const rent = num($('admMonthlyRent').value);
+  const std = { billAdm: num(st.admissionFee), billForm: num(st.formFee), billDep: num(st.deposit), billBed: rent };
+  if (document.activeElement !== $('admDeposit') && $('admDeposit').dataset.touched !== '1') $('admDeposit').value = st.deposit;
+  if ($('billDep').dataset.touched !== '1' || document.activeElement === $('admDeposit')) $('billDep').value = $('admDeposit').value;
+  ['billAdm', 'billForm', 'billBed'].forEach((k) => { if ($(k).dataset.touched !== '1') $(k).value = std[k]; });
+  std.billDep = num(st.deposit);
+  const v = { billAdm: num($('billAdm').value), billForm: num($('billForm').value), billDep: num($('billDep').value), billBed: num($('billBed').value) };
+  const total = v.billAdm + v.billForm + v.billDep + v.billBed;
+  const disc = Math.max(0, (std.billAdm + std.billForm + std.billDep + std.billBed) - total);
+  Object.keys(v).forEach((k) => $(k).classList.toggle('bill-changed', v[k] !== std[k]));
+  $('billDiscRow').classList.toggle('hidden', !disc); $('billDisc').textContent = '− ' + money(disc);
+  $('billReset').classList.toggle('hidden', !Object.keys(v).some((k) => v[k] !== std[k]));
+  $('calcTotal').textContent = money(total);
+  return { ...v, disc };
 }
+function resetBill() { ['billAdm', 'billForm', 'billBed', 'billDep'].forEach((k) => { $(k).dataset.touched = ''; }); $('admDeposit').dataset.touched = ''; $('billDiscNote').value = ''; calcBill(); }
 function clearAdmission() {
   document.querySelectorAll('#tab-admission input[type=text], #tab-admission input:not([type]), #tab-admission input[type=number]').forEach((i) => { if (!['admMonthlyRent', 'admDeposit'].includes(i.id)) i.value = ''; });
   $('admBloodGroup').value = ''; photoData = ''; resetScan(); $('photoPreview').classList.add('hidden'); $('photoPlaceholder').classList.remove('hidden');
-  const t = nowBs().bs.str; pickers.admBookingPicker.set(t); pickers.admAdmissionPicker.set(t); $('admDeposit').dataset.touched = ''; $('admPaid').checked = true;
+  const t = nowBs().bs.str; pickers.admBookingPicker.set(t); pickers.admAdmissionPicker.set(t); $('admPaid').checked = true; resetBill();
   $('admBookingAD').textContent = adOf(t); $('admAdmissionAD').textContent = adOf(t); fillRoomSelect();
 }
 function readPhoto(file) {
@@ -630,12 +642,13 @@ async function saveAdmission() {
   if (!name) { $('admName').classList.add('field-err'); toast('Enter the student\'s full name.', true); return; }
   if (!room || bedIdx === '' || room.beds[+bedIdx].name) { $('admRoom').classList.add('field-err'); toast('Choose a room with a free bed.', true); return; }
   const adm = pickers.admAdmissionPicker.get(); const b = B(); const id = uid('REC'); const stuId = uid('STU');
-  const fees = { admissionFee: num(S.settings.admission.admissionFee), formFee: num(S.settings.admission.formFee), deposit: num($('admDeposit').value), bedFee: num($('admMonthlyRent').value) };
+  const bill = calcBill(); const rent = num($('admMonthlyRent').value);
+  const fees = { admissionFee: bill.billAdm, formFee: bill.billForm, deposit: bill.billDep, bedFee: bill.billBed, monthlyRent: rent, discount: bill.disc, discountNote: bill.disc ? $('billDiscNote').value.trim() : '' };
   const food = (document.querySelector('input[name=admFood]:checked') || {}).value || '';
   const g = (x) => $(x).value.trim();
   const rec = { id, studentId: stuId, roomId: room.id, bedIndex: +bedIdx, name, dob: pickers.admDobPicker.get(), whatsapp: g('admWhatsapp'), email: g('admEmail'), bloodGroup: $('admBloodGroup').value, district: g('admDistrict'), municipality: g('admMunicipality'), ward: g('admWard'), street: g('admStreet'), citizenship: g('admCitizenship'), institute: g('admInstitute'), shift: g('admShift'), level: g('admLevel'), foodPreference: food, health: g('admHealth'), fatherName: g('admFather'), motherName: g('admMother'), guardianName: g('admGuardian'), relation: g('admRelation'), emergencyPhone: g('admEmergencyPhone'), occupation: g('admOccupation'), guardianAddress: g('admGuardianAddress'), nameNepali: g('admNameNp'), formNo: g('admFormNo'), fatherPhone: g('admFatherPhone'), fatherOccupation: g('admFatherOccupation'), motherPhone: g('admMotherPhone'), motherOccupation: g('admMotherOccupation'), stayDuration: g('admStay'), scanned: !!scanState, bookingDate: pickers.admBookingPicker.get(), admissionDate: adm, admissionDateBS: adm, roomLabel: room.label, roomNo: 'Bed ' + (+bedIdx + 1), approvedBy: g('admApprovedBy'), photo: photoData, paid: $('admPaid').checked, createdAt: new Date().toISOString(), ...fees };
   b.records.push(rec);
-  b.students.push({ id: stuId, name, phone: rec.whatsapp, room: room.number, bed: P.logic.bedTypeOf(room.beds.length), fee: fees.bedFee, active: '1', since: feeSince(adm), until: '', recordId: id, roomId: room.id });
+  b.students.push({ id: stuId, name, phone: rec.whatsapp, room: room.number, bed: P.logic.bedTypeOf(room.beds.length), fee: rent || fees.bedFee, active: '1', since: feeSince(adm), until: '', recordId: id, roomId: room.id });
   room.beds[+bedIdx] = { studentId: stuId, name, phone: rec.whatsapp };
   if ($('admPaid').checked) {
     const ref = 'adm:' + id; const ad = adOf(adm);
@@ -643,8 +656,8 @@ async function saveAdmission() {
     inc('Admission Fee', fees.admissionFee); inc('Form Fee', fees.formFee); inc(DEP, fees.deposit, true);
     if (fees.bedFee > 0) {
       const fid = uid('FEE');
-      b.fees.push({ id: fid, studentId: stuId, studentName: name, room: room.number, bed: P.logic.bedTypeOf(room.beds.length), forMonth: ym(adm), expected: fees.bedFee, amount: fees.bedFee, dateBS: adm, dateAD: ad, ref });
-      b.income.push({ id: uid('INC'), dateBS: adm, dateAD: ad, category: 'Monthly Fee', description: `${name} — ${room.label} — ${monthName(+adm.slice(5, 7))} fee (first month)`, amount: fees.bedFee, ref, refundable: false });
+      b.fees.push({ id: fid, studentId: stuId, studentName: name, room: room.number, bed: P.logic.bedTypeOf(room.beds.length), forMonth: ym(adm), expected: fees.bedFee, amount: fees.bedFee, discount: Math.max(0, rent - fees.bedFee), dateBS: adm, dateAD: ad, ref });
+      b.income.push({ id: uid('INC'), dateBS: adm, dateAD: ad, category: 'Monthly Fee', description: `${name} — ${room.label} — ${monthName(+adm.slice(5, 7))} fee (first month)${fees.bedFee < rent ? ' · discount ' + money(rent - fees.bedFee) : ''}`, amount: fees.bedFee, ref, refundable: false });
     }
   }
   await persist(); lastAdm = id;
@@ -908,7 +921,10 @@ function initApp() {
   pickers.admBookingPicker.onChange = (s) => { $('admBookingAD').textContent = adOf(s); };
   pickers.admAdmissionPicker.onChange = (s) => { $('admAdmissionAD').textContent = adOf(s); };
   $('admBookingAD').textContent = adOf(t); $('admAdmissionAD').textContent = adOf(t);
-  $('admRoom').onchange = onRoomChange; $('admMonthlyRent').oninput = calcBill; $('admDeposit').oninput = () => { $('admDeposit').dataset.touched = '1'; calcBill(); };
+  $('admRoom').onchange = onRoomChange; $('admMonthlyRent').oninput = calcBill; $('admDeposit').oninput = () => { $('admDeposit').dataset.touched = '1'; $('billDep').dataset.touched = ''; calcBill(); };
+  ['billAdm', 'billForm', 'billBed'].forEach((k) => { $(k).oninput = () => { $(k).dataset.touched = '1'; calcBill(); }; });
+  $('billDep').oninput = () => { $('billDep').dataset.touched = '1'; $('admDeposit').value = $('billDep').value; $('admDeposit').dataset.touched = '1'; calcBill(); };
+  $('billReset').onclick = resetBill;
   $('photoBox').onclick = () => $('admPhotoInput').click(); $('admPhotoInput').onchange = (e) => readPhoto(e.target.files[0]);
   $('admClearBtn').onclick = clearAdmission; $('admSaveBtn').onclick = saveAdmission;
 $('scanBtn').onclick = () => { const fi = $('scanInput'); fi.value = ''; fi.click(); };

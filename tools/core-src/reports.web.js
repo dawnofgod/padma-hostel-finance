@@ -224,7 +224,7 @@ ${kv([['Booking Date (BS)', rec.bookingDate], ['Admission Date (BS)', rec.admiss
 <tr><td>Admission Fee</td><td class="r">${money(rec.admissionFee)}</td></tr>
 <tr><td>Security Deposit (refundable)</td><td class="r">${money(rec.deposit)}</td></tr>
 <tr><td>Form Fee</td><td class="r">${money(rec.formFee)}</td></tr>
-<tr><td>Bed / Room Fee</td><td class="r">${money(rec.bedFee)}</td></tr></tbody>
+<tr><td>Bed / Room Fee</td><td class="r">${money(rec.bedFee)}</td></tr>${Number(rec.discount) ? `<tr><td>Discount given${rec.discountNote ? ' (' + esc(rec.discountNote) + ')' : ''} — already taken off the amounts above</td><td class="r">${money(rec.discount)}</td></tr>` : ''}</tbody>
 <tfoot><tr><td>TOTAL</td><td class="r">${money(total)}</td></tr></tfoot></table>
 <div class="sign"><div>Student / Guardian Signature</div><div>Authorized Signature (Padma Hostel)</div></div>
 </div></body></html>`;
