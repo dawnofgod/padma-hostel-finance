@@ -5,10 +5,12 @@
     maker: 'arunpoudel_dm',
     email: 'arunpoudel9957@gmail.com',
     whatsapp: '9779761119707', // country code + number, digits only
-    instagram: 'https://www.instagram.com/arunpoudel_dm',
-    facebook: '',
-    youtube: '',
+    instagram: 'https://www.instagram.com/arunpoudel.dm/',
+    facebook: 'https://www.facebook.com/profile.php?id=61586265016437',
+    youtube: 'https://www.youtube.com/@ArunPoudel-DM',
   };
+  // Gmail in the browser: a plain mailto: link does nothing on computers without a mail app set up.
+  C.emailUrl = C.email ? 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(C.email) + '&su=' + encodeURIComponent('Padma Hostel Finance – support') : '';
   window.PadmaContact = C;
   const ico = {
     wa: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3Zm0 16.3c-1.4 0-2.8-.4-4-1.1l-.3-.2-2.7.7.7-2.6-.2-.3A7.3 7.3 0 1 1 12 19.3Zm4-5.5c-.2-.1-1.3-.6-1.5-.7s-.4-.1-.5.1l-.7.9c-.1.1-.3.2-.5.1a6 6 0 0 1-3-2.6c-.2-.4.2-.4.6-1.2.1-.2 0-.3 0-.4l-.7-1.6c-.2-.4-.4-.4-.5-.4h-.5a.9.9 0 0 0-.6.3 2.7 2.7 0 0 0-.8 2c0 1.2.8 2.3.9 2.4.1.2 1.7 2.6 4.1 3.6 1.5.7 2.1.7 2.9.6.5-.1 1.3-.6 1.5-1.1.2-.5.2-1 .1-1.1l-.6-.2Z"/></svg>',
@@ -20,7 +22,7 @@
   const a = (href, title, icon, color) => href ? `<a href="${href}" target="_blank" rel="noopener" title="${title}" aria-label="${title}" style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;color:${color};border:1px solid currentColor;opacity:.85">${icon}</a>` : '';
   const social = [
     a(C.whatsapp && `https://wa.me/${C.whatsapp}`, 'Chat on WhatsApp', ico.wa, '#16a34a'),
-    a(C.email && `mailto:${C.email}`, 'Email', ico.mail, '#475569'),
+    a(C.emailUrl, 'Email (Gmail)', ico.mail, '#475569'),
     a(C.instagram, 'Instagram', ico.ig, '#c13584'),
     a(C.facebook, 'Facebook', ico.fb, '#1877f2'),
     a(C.youtube, 'YouTube', ico.yt, '#dc2626'),
