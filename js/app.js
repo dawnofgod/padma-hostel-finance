@@ -302,14 +302,14 @@ function balanceRows(brId) {
   return { dep, fee: [...fee.values()] };
 }
 const BADGE = {
-  'return-now': ['bal-red', '🔴 Left — return now'],
-  held: ['bal-amber', '🟡 Taken — holding'],
   returned: ['bal-green', '🟢 Returned'],
+  held: ['bal-blue', '🔵 Taken — holding'],
+  'return-now': ['bal-orange', '🟠 Left — return now'],
   'not-taken': ['bal-red', '🔴 Not taken'],
   none: ['bal-grey', '⚪ No deposit'],
-  'fee-due': ['bal-red', '🔴 Fee due'],
-  'fee-part': ['bal-amber', '🟡 Part paid'],
-  'fee-ok': ['bal-green', '🟢 All paid'],
+  'fee-ok': ['bal-teal', '🟩 All paid'],
+  'fee-part': ['bal-amber', '🟨 Part paid'],
+  'fee-due': ['bal-purple', '🟪 Fee due'],
 };
 const badge = (k) => `<span class="bal-badge ${BADGE[k][0]}">${BADGE[k][1]}</span>`;
 function balanceData() {
@@ -354,7 +354,7 @@ function renderBalance() {
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
     ${card('PAYABLE — WE MUST GIVE BACK', d.payable, 'text-amber-700', `Deposits we are holding. ${d.returnNow ? `<b class="text-rose-600">${money(d.returnNow)} for students who already left.</b>` : 'Nobody who left is waiting.'}`)}
     ${card('RECEIVABLE — STUDENTS MUST PAY US', receivable, 'text-rose-600', `Monthly fees ${money(d.feeDue)} + deposits not taken ${money(d.depDue)}`)}
-    ${card('NET (RECEIVABLE − PAYABLE)', net, netCls(net), net >= 0 ? 'More is owed to us than we owe.' : 'We owe more than is owed to us.')}
+    ${card('NET (RECEIVABLE − PAYABLE)', net, netCls(net), !net ? 'Nothing pending either way.' : net > 0 ? 'More is owed to us than we owe.' : 'We owe more than is owed to us.')}
   </div>
   <div class="card p-3 mb-5 text-xs flex flex-wrap gap-3 items-center"><b>Signs:</b> ${badge('returned')} ${badge('held')} ${badge('return-now')} ${badge('not-taken')} ${badge('none')} <span class="text-slate-400">|</span> ${badge('fee-ok')} ${badge('fee-part')} ${badge('fee-due')}</div>
   <div class="card p-2 mb-5"><div class="font-bold px-3 pt-3 pb-1">1. Security deposits <span class="text-xs font-normal text-slate-500">— who gave a deposit, who has not, and who must get it back</span></div><div class="scroll"><table class="sheet" id="balDep"><thead><tr><th>#</th>${hcol}<th>Student</th><th>Room</th><th>Stay</th><th>Sign</th><th class="r">Deposit</th><th>Taken on</th><th>Returned on</th><th></th></tr></thead><tbody>
@@ -373,7 +373,7 @@ function balancePrint() {
   body{font:12px/1.4 system-ui,Segoe UI,Arial;color:#0f172a;margin:24px}h1{font-size:18px;margin:0 0 4px}.card{border:1px solid #e2e8f0;border-radius:8px;padding:10px;margin-bottom:12px}
   table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #e2e8f0;padding:5px 6px;text-align:left;vertical-align:top}.r{text-align:right}.text-xs{font-size:11px;color:#64748b}
   .stat-num{font-size:18px;font-weight:700}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.bal-badge{padding:1px 6px;border-radius:9px;font-size:11px;white-space:nowrap}
-  .bal-green{background:#dcfce7;color:#166534}.bal-amber{background:#fef3c7;color:#92400e}.bal-red{background:#fee2e2;color:#991b1b}.bal-grey{background:#f1f5f9;color:#475569}.text-rose-600{color:#e11d48}.text-amber-700{color:#b45309}.text-emerald-600{color:#059669}
+  .bal-green{background:#dcfce7;color:#166534}.bal-blue{background:#dbeafe;color:#1e40af}.bal-orange{background:#ffedd5;color:#9a3412}.bal-red{background:#fee2e2;color:#991b1b}.bal-grey{background:#f1f5f9;color:#475569}.bal-teal{background:#ccfbf1;color:#115e59}.bal-amber{background:#fef9c3;color:#854d0e}.bal-purple{background:#f3e8ff;color:#6b21a8}.text-rose-600{color:#e11d48}.text-amber-700{color:#b45309}.text-emerald-600{color:#059669}
   </style></head><body><h1>Padma Hostel — Balance Sheet</h1><div class="text-xs">${both ? 'Both hostels' : esc(BR[branch].name)} · as of ${esc(t.str)} B.S.</div><div class="grid" style="margin:12px 0">${cards}</div>${tables}<script>onload=()=>print()<\/script></body></html>`);
   w.document.close();
 }
