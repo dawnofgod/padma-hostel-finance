@@ -54,6 +54,17 @@ module.exports = async (req, res) => {
       res.setHeader('Set-Cookie', L.adminCookie(a));
       return res.status(200).json({ ok: true });
     }
+    if (b.action === 'recover') { // after "Forgot password?" + Google sign-in with the Drive account
+      if (!L.readSigned(req, 'padma_recover')) return res.status(401).json({ error: 'Time is up. Press "Forgot password?" and sign in with Google again.' });
+      const user = L.cleanUser(b.username);
+      const err = userError(user) || pwError(b.password);
+      if (err) return res.status(400).json({ error: err });
+      const a = { user, pw: L.hashPw(b.password), v: String((Number(stored.v) || 1) + 1) };
+      await L.hset(L.ADMIN_KEY, a);
+      await L.redis('DEL', L.K('fail:admin-login'));
+      res.setHeader('Set-Cookie', [L.adminCookie(a), L.clearCookie('padma_recover')]);
+      return res.status(200).json({ ok: true });
+    }
     if (b.action === 'login') {
       const user = L.cleanUser(b.username);
       if (await L.locked('admin-login')) return res.status(429).json({ error: 'Too many wrong passwords. Wait 15 minutes.' });

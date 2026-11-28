@@ -12,6 +12,17 @@ module.exports = async (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   const { code, state, error } = req.query || {};
   if (error) return res.status(400).send(page('Drive not connected', 'Google said: ' + esc(error)));
+  if (L.checkState(state) === 'recover') {
+    if (!L.dbReady()) return res.status(503).send(page('Not ready', 'Database is not connected.'));
+    const emails = [(await L.hgetall(L.LIVE_OWNER_KEY)).email, (await L.hgetall(L.K('owner'))).email].filter(Boolean).map((e) => String(e).toLowerCase());
+    if (!emails.length) return res.status(400).send(page('Cannot reset', 'Google Drive is not connected yet, so there is no Google account to check.'));
+    let g;
+    try { g = await L.exchangeCode(req, code); } catch (e) { return res.status(502).send(page('Cannot reset', esc(e.message || String(e)))); }
+    if (!emails.includes(g.id.email)) return res.status(403).send(page('Wrong Google account', 'Please choose the same Google account that is connected for Google Drive backups.'));
+    res.setHeader('Set-Cookie', L.signed('padma_recover', { email: g.id.email, exp: Date.now() + 10 * 60 * 1000 }, 600));
+    res.setHeader('Location', '/admin.html?recover=1');
+    return res.status(302).send('');
+  }
   if (L.checkState(state) !== 'drive') return res.status(400).send(page('Link expired', 'Please press "Connect Google Drive" again.'));
   if (!L.dbReady() || !(await L.adminFrom(req))) return res.status(401).send(page('Please log in', 'Log in to the admin panel first, then press "Connect Google Drive".'));
   try {

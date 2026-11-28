@@ -50,15 +50,17 @@
     return v;
   }
   let SETUP = false;
+  const RECOVER = new URLSearchParams(location.search).get('recover') === '1';
   function showLogin(setup, env) {
-    SETUP = !!setup;
+    SETUP = !!setup || RECOVER;
     $('panel').classList.add('hidden'); $('loginBox').classList.remove('hidden'); $('logoutBtn').classList.add('hidden'); $('settingsBtn').classList.add('hidden');
     if (env === 'test') $('testBar').classList.remove('hidden');
-    $('loginTitle').textContent = SETUP ? 'Create the admin login' : 'Admin login';
-    $('loginHint').textContent = SETUP ? 'First time here: choose the username and password you will use to open this admin panel. Only one admin login can be made.' : 'Only the admin can open this panel.';
+    $('loginTitle').textContent = RECOVER ? 'Set a new admin login' : SETUP ? 'Create the admin login' : 'Admin login';
+    $('forgotWrap').classList.toggle('hidden', SETUP);
+    $('loginHint').textContent = RECOVER ? 'Google account checked. Choose the username and new password for this admin panel (real and test).' : SETUP ? 'First time here: choose the username and password you will use to open this admin panel. Only one admin login can be made.' : 'Only the admin can open this panel.';
     $('aPass2Wrap').classList.toggle('hidden', !SETUP);
     $('aPass').autocomplete = SETUP ? 'new-password' : 'current-password';
-    $('loginBtn').textContent = SETUP ? 'Create admin login' : 'Log in';
+    $('loginBtn').textContent = RECOVER ? 'Save new login' : SETUP ? 'Create admin login' : 'Log in';
     setTimeout(() => $('aUser').focus(), 30);
   }
   $('loginForm').onsubmit = async (e) => {
@@ -66,8 +68,9 @@
     $('loginMsg').textContent = '';
     if (SETUP && $('aPass').value !== $('aPass2').value) { $('loginMsg').textContent = 'The two passwords are not the same.'; return; }
     try {
-      await api({ action: SETUP ? 'setup' : 'login', username: $('aUser').value, password: $('aPass').value });
+      await api({ action: RECOVER ? 'recover' : SETUP ? 'setup' : 'login', username: $('aUser').value, password: $('aPass').value });
       $('aPass').value = ''; $('aPass2').value = '';
+      if (RECOVER) { history.replaceState(null, '', location.pathname); toast('New admin login saved.'); }
       start();
     } catch (err) { $('loginMsg').textContent = err.message; }
   };
@@ -254,5 +257,5 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('vClose').click(); });
 
   if (new URLSearchParams(location.search).get('drive') === 'connected') { toast('Google Drive connected.'); history.replaceState(null, '', location.pathname); }
-  start();
+  if (RECOVER) showLogin(false); else start();
 })();
